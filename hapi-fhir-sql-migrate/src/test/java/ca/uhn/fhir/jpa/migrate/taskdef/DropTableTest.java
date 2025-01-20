@@ -1,17 +1,15 @@
 package ca.uhn.fhir.jpa.migrate.taskdef;
 
 import ca.uhn.fhir.jpa.migrate.JdbcUtils;
+import ca.uhn.fhir.jpa.migrate.MigrationResult;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import java.sql.SQLException;
 import java.util.function.Supplier;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.greaterThan;
-import static org.hamcrest.Matchers.hasItems;
-import static org.hamcrest.core.IsNot.not;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class DropTableTest extends BaseTest {
 
@@ -29,11 +27,11 @@ public class DropTableTest extends BaseTest {
 		task.setTableName("SOMETABLE");
 		getMigrator().addTask(task);
 
-		assertThat(JdbcUtils.getTableNames(getConnectionProperties()), (hasItems("SOMETABLE")));
+		assertThat(JdbcUtils.getTableNames(getConnectionProperties())).contains("SOMETABLE");
 
 		getMigrator().migrate();
 
-		assertThat(JdbcUtils.getTableNames(getConnectionProperties()), not(hasItems("SOMETABLE")));
+		assertThat(JdbcUtils.getTableNames(getConnectionProperties())).doesNotContain("SOMETABLE");
 	}
 
 	@ParameterizedTest(name = "{index}: {0}")
@@ -49,11 +47,11 @@ public class DropTableTest extends BaseTest {
 		task.setTableName("SOMETABLE");
 		getMigrator().addTask(task);
 
-		assertThat(JdbcUtils.getTableNames(getConnectionProperties()), (hasItems("SOMETABLE")));
+		assertThat(JdbcUtils.getTableNames(getConnectionProperties())).contains("SOMETABLE");
 
 		getMigrator().migrate();
 
-		assertThat(JdbcUtils.getTableNames(getConnectionProperties()), not(hasItems("SOMETABLE")));
+		assertThat(JdbcUtils.getTableNames(getConnectionProperties())).doesNotContain("SOMETABLE");
 	}
 
 	@ParameterizedTest(name = "{index}: {0}")
@@ -67,12 +65,12 @@ public class DropTableTest extends BaseTest {
 
 		getMigrator().migrate();
 
-		assertThat(JdbcUtils.getTableNames(getConnectionProperties()), not(hasItems("SOMETABLE")));
+		assertThat(JdbcUtils.getTableNames(getConnectionProperties())).doesNotContain("SOMETABLE");
 	}
 
 	@ParameterizedTest(name = "{index}: {0}")
 	@MethodSource("data")
-	public void testFlywayGetMigrationInfo(Supplier<TestDatabaseDetails> theTestDatabaseDetails) throws SQLException {
+	public void testHapiMigrationResult(Supplier<TestDatabaseDetails> theTestDatabaseDetails) throws SQLException {
 		before(theTestDatabaseDetails);
 
 		executeSql("create table SOMETABLE (PID bigint not null, TEXTCOL varchar(255))");
@@ -81,13 +79,15 @@ public class DropTableTest extends BaseTest {
 		task.setTableName("SOMETABLE");
 		getMigrator().addTask(task);
 
-		assertThat(JdbcUtils.getTableNames(getConnectionProperties()), (hasItems("SOMETABLE")));
+		assertThat(JdbcUtils.getTableNames(getConnectionProperties())).contains("SOMETABLE");
 
-		assertThat(getMigrator().getMigrationInfo().get().pending().length, greaterThan(0));
-		getMigrator().migrate();
-		assertThat(getMigrator().getMigrationInfo().get().pending().length, equalTo(0));
+		MigrationResult result = getMigrator().migrate();
+		assertEquals(0, result.changes);
+		assertThat(result.executedStatements).hasSize(1);
+		assertThat(result.succeededTasks).hasSize(1);
+		assertThat(result.failedTasks).isEmpty();
 
-		assertThat(JdbcUtils.getTableNames(getConnectionProperties()), not(hasItems("SOMETABLE")));
+		assertThat(JdbcUtils.getTableNames(getConnectionProperties())).doesNotContain("SOMETABLE");
 	}
 
 

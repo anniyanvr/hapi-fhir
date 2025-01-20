@@ -1,10 +1,8 @@
-package ca.uhn.fhir.jpa.mdm.svc.candidate;
-
 /*-
  * #%L
  * HAPI FHIR JPA Server - Master Data Management
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,13 +17,17 @@ package ca.uhn.fhir.jpa.mdm.svc.candidate;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.jpa.mdm.svc.candidate;
 
+import ca.uhn.fhir.interceptor.model.RequestPartitionId;
 import ca.uhn.fhir.jpa.api.dao.DaoRegistry;
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDao;
-import ca.uhn.fhir.jpa.mdm.svc.MdmSearchParamSvc;
 import ca.uhn.fhir.jpa.searchparam.SearchParameterMap;
 import ca.uhn.fhir.mdm.api.IMdmSettings;
+import ca.uhn.fhir.mdm.svc.MdmSearchParamSvc;
 import ca.uhn.fhir.rest.api.server.IBundleProvider;
+import ca.uhn.fhir.rest.api.server.SystemRequestDetails;
+import org.hl7.fhir.instance.model.api.IAnyResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,10 +41,38 @@ public class CandidateSearcher {
 	private final MdmSearchParamSvc myMdmSearchParamSvc;
 
 	@Autowired
-	public CandidateSearcher(DaoRegistry theDaoRegistry, IMdmSettings theMdmSettings, MdmSearchParamSvc theMdmSearchParamSvc) {
+	public CandidateSearcher(
+			DaoRegistry theDaoRegistry, IMdmSettings theMdmSettings, MdmSearchParamSvc theMdmSearchParamSvc) {
 		myDaoRegistry = theDaoRegistry;
 		myMdmSettings = theMdmSettings;
 		myMdmSearchParamSvc = theMdmSearchParamSvc;
+	}
+
+	/**
+	 * Perform a search for mdm candidates.
+	 *
+	 * @param theResourceType     the type of resources searched on
+	 * @param theResourceCriteria the criteria used to search for the candidates
+	 * @param partitionId         the partition for the search
+	 * @return Optional.empty() if >= IMdmSettings.getCandidateSearchLimit() candidates are found, otherwise
+	 * return the bundle provider for the search results.
+	 */
+	public Optional<IBundleProvider> search(
+			String theResourceType, String theResourceCriteria, RequestPartitionId partitionId) {
+		SearchParameterMap searchParameterMap =
+				myMdmSearchParamSvc.mapFromCriteria(theResourceType, theResourceCriteria);
+
+		searchParameterMap.setLoadSynchronousUpTo(myMdmSettings.getCandidateSearchLimit());
+
+		IFhirResourceDao<?> resourceDao = myDaoRegistry.getResourceDao(theResourceType);
+		SystemRequestDetails systemRequestDetails = new SystemRequestDetails();
+		systemRequestDetails.setRequestPartitionId(partitionId);
+		IBundleProvider retval = resourceDao.search(searchParameterMap, systemRequestDetails);
+
+		if (retval.size() != null && retval.size() >= myMdmSettings.getCandidateSearchLimit()) {
+			return Optional.empty();
+		}
+		return Optional.of(retval);
 	}
 
 	/**
@@ -54,16 +84,13 @@ public class CandidateSearcher {
 	 * return the bundle provider for the search results.
 	 */
 	public Optional<IBundleProvider> search(String theResourceType, String theResourceCriteria) {
-		SearchParameterMap searchParameterMap = myMdmSearchParamSvc.mapFromCriteria(theResourceType, theResourceCriteria);
+		return this.search(theResourceType, theResourceCriteria, RequestPartitionId.allPartitions());
+	}
 
-		searchParameterMap.setLoadSynchronousUpTo(myMdmSettings.getCandidateSearchLimit());
-
-		IFhirResourceDao<?> resourceDao = myDaoRegistry.getResourceDao(theResourceType);
-		IBundleProvider retval = resourceDao.search(searchParameterMap);
-
-		if (retval.size() != null && retval.size() >= myMdmSettings.getCandidateSearchLimit()) {
-			return Optional.empty();
+	public static String idOrType(IAnyResource theResource, String theResourceType) {
+		if (theResource.getIdElement() == null || theResource.getIdElement().isEmpty()) {
+			return theResourceType;
 		}
-		return Optional.of(retval);
+		return theResource.getIdElement().toUnqualifiedVersionless().toString();
 	}
 }

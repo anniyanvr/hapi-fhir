@@ -5,7 +5,8 @@
 	<parent>
 		<groupId>ca.uhn.hapi.fhir</groupId>
 		<artifactId>hapi-deployable-pom</artifactId>
-		<version>6.0.0-PRE4-SNAPSHOT</version>
+		<version>7.7.17-SNAPSHOT</version>
+
 		<relativePath>../hapi-deployable-pom/pom.xml</relativePath>
 	</parent>
 
@@ -36,11 +37,6 @@
 		</dependency>
 		<dependency>
 			<groupId>ca.uhn.hapi.fhir</groupId>
-			<artifactId>hapi-fhir-batch</artifactId>
-			<version>${project.version}</version>
-		</dependency>
-		<dependency>
-			<groupId>ca.uhn.hapi.fhir</groupId>
 			<artifactId>hapi-fhir-structures-dstu2</artifactId>
 			<version>${project.version}</version>
 		</dependency>
@@ -62,6 +58,11 @@
 		<dependency>
 			<groupId>ca.uhn.hapi.fhir</groupId>
 			<artifactId>hapi-fhir-structures-hl7org-dstu2</artifactId>
+			<version>${project.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>ca.uhn.hapi.fhir</groupId>
+			<artifactId>hapi-fhir-caching-api</artifactId>
 			<version>${project.version}</version>
 		</dependency>
 		<!-- TODO KHS remove jpa stuff from here -->
@@ -107,6 +108,11 @@
 			</exclusions>
 		</dependency>
 		<dependency>
+			<groupId>org.springframework</groupId>
+			<artifactId>spring-tx</artifactId>
+		</dependency>
+
+		<dependency>
 			<groupId>com.fasterxml.jackson.core</groupId>
 			<artifactId>jackson-annotations</artifactId>
 		</dependency>
@@ -120,15 +126,14 @@
 			<artifactId>quartz</artifactId>
 		</dependency>
 
-		<!-- Java -->
 		<dependency>
-			<groupId>javax.annotation</groupId>
-			<artifactId>javax.annotation-api</artifactId>
+			<groupId>jakarta.annotation</groupId>
+			<artifactId>jakarta.annotation-api</artifactId>
 		</dependency>
 
 		<dependency>
-			<groupId>javax.servlet</groupId>
-			<artifactId>javax.servlet-api</artifactId>
+			<groupId>jakarta.servlet</groupId>
+			<artifactId>jakarta.servlet-api</artifactId>
 			<scope>provided</scope>
 		</dependency>
 
@@ -143,8 +148,31 @@
 			<artifactId>spring-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<dependency>
+			<groupId>com.github.dnault</groupId>
+			<artifactId>xml-patch</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.dogote</groupId>
+			<artifactId>json-patch</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.data</groupId>
+			<artifactId>spring-data-commons</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>ca.uhn.hapi.fhir</groupId>
+			<artifactId>hapi-fhir-caching-caffeine</artifactId>
+			<version>${project.version}</version>
+			<scope>test</scope>
+		</dependency>
+        <dependency>
+            <groupId>ca.uhn.hapi.fhir</groupId>
+            <artifactId>org.hl7.fhir.r5</artifactId>
+            <version>${fhir_core_version}</version>
+        </dependency>
 
-	</dependencies>
+    </dependencies>
 	<build>
 		<pluginManagement>
 			<plugins>
@@ -157,31 +185,5 @@
 				</plugin>
 			</plugins>
 		</pluginManagement>
-		<plugins>
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-jar-plugin</artifactId>
-				<version>3.2.0</version>
-				<executions>
-					<execution>
-						<goals>
-							<goal>test-jar</goal>
-						</goals>
-					</execution>
-				</executions>
-			</plugin>
-			<plugin>
-				<groupId>org.jacoco</groupId>
-				<artifactId>jacoco-maven-plugin</artifactId>
-				<executions>
-					<execution>
-						<id>default-prepare-agent</id>
-						<goals>
-							<goal>prepare-agent</goal>
-						</goals>
-					</execution>
-				</executions>
-			</plugin>
-		</plugins>
 	</build>
 </project>

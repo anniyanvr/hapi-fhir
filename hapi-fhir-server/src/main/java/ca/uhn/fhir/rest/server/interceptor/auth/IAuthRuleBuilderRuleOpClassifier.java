@@ -1,10 +1,8 @@
-package ca.uhn.fhir.rest.server.interceptor.auth;
-
 /*
  * #%L
  * HAPI FHIR - Server Framework
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,13 +17,12 @@ package ca.uhn.fhir.rest.server.interceptor.auth;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.rest.server.interceptor.auth;
 
-import java.util.Collection;
-import java.util.List;
-
+import jakarta.annotation.Nonnull;
 import org.hl7.fhir.instance.model.api.IIdType;
 
-import javax.annotation.Nonnull;
+import java.util.Collection;
 
 public interface IAuthRuleBuilderRuleOpClassifier {
 
@@ -37,9 +34,9 @@ public interface IAuthRuleBuilderRuleOpClassifier {
 	 * <code>inCompartment("Patient", new IdType("Patient", "123"))</code>
 	 * </p>
 	 * <p>
-	 * This call completes the rule and adds the rule to the chain. 
+	 * This call completes the rule and adds the rule to the chain.
 	 * </p>
-	 * 
+	 *
 	 * @param theCompartmentName The name of the compartment (must not be null or blank)
 	 * @param theOwner The owner of the compartment. Note that both the resource type and ID must be populated in this ID.
 	 */
@@ -66,8 +63,10 @@ public interface IAuthRuleBuilderRuleOpClassifier {
 	 * @param theOwner The owner of the compartment. Note that both the resource type and ID must be populated in this ID.
 	 * @param theAdditionalTypeSearchParamNames A list of strings for additional resource types and search parameters which count as being in the compartment, in the form "resourcetype:search-parameter-name".
 	 */
-	IAuthRuleBuilderRuleOpClassifierFinished inCompartmentWithAdditionalSearchParams(String theCompartmentName, IIdType theOwner, AdditionalCompartmentSearchParameters theAdditionalTypeSearchParamNames);
-
+	IAuthRuleBuilderRuleOpClassifierFinished inCompartmentWithAdditionalSearchParams(
+			String theCompartmentName,
+			IIdType theOwner,
+			AdditionalCompartmentSearchParameters theAdditionalTypeSearchParamNames);
 
 	/**
 	 * Rule applies to resources in the given compartment.
@@ -77,14 +76,14 @@ public interface IAuthRuleBuilderRuleOpClassifier {
 	 * <code>inCompartment("Patient", new IdType("Patient", "123"))</code>
 	 * </p>
 	 * <p>
-	 * This call completes the rule and adds the rule to the chain. 
+	 * This call completes the rule and adds the rule to the chain.
 	 * </p>
-	 * 
+	 *
 	 * @param theCompartmentName The name of the compartment (must not be null or blank)
 	 * @param theOwners The owner of the compartment. Note that both the resource type and ID must be populated in this ID.
 	 */
-	IAuthRuleBuilderRuleOpClassifierFinished inCompartment(String theCompartmentName, Collection<? extends IIdType> theOwners);
-
+	IAuthRuleBuilderRuleOpClassifierFinished inCompartment(
+			String theCompartmentName, Collection<? extends IIdType> theOwners);
 
 	/**
 	 * Rule applies to resources in the given compartment.
@@ -108,13 +107,15 @@ public interface IAuthRuleBuilderRuleOpClassifier {
 	 * @param theAdditionalTypeSearchParamNames A {@link AdditionalCompartmentSearchParameters} which allows you to expand the search space for what is considered "in" the compartment.
 	 *
 	 **/
-	IAuthRuleBuilderRuleOpClassifierFinished inCompartmentWithAdditionalSearchParams(String theCompartmentName, Collection<? extends IIdType> theOwners, AdditionalCompartmentSearchParameters theAdditionalTypeSearchParamNames);
-
+	IAuthRuleBuilderRuleOpClassifierFinished inCompartmentWithAdditionalSearchParams(
+			String theCompartmentName,
+			Collection<? extends IIdType> theOwners,
+			AdditionalCompartmentSearchParameters theAdditionalTypeSearchParamNames);
 
 	/**
 	 * Rule applies to any resource instances
 	 * <p>
-	 * This call completes the rule and adds the rule to the chain. 
+	 * This call completes the rule and adds the rule to the chain.
 	 * </p>
 	 */
 	IAuthRuleBuilderRuleOpClassifierFinished withAnyId();
@@ -125,7 +126,8 @@ public interface IAuthRuleBuilderRuleOpClassifier {
 	 * @param theValueSetUrl The valueset URL, e.g. <code>"http://my-value-set"</code>
 	 * @since 6.0.0
 	 */
-	IAuthRuleBuilderRuleOpClassifierFinished withCodeInValueSet(@Nonnull String theSearchParameterName, @Nonnull String theValueSetUrl);
+	IAuthRuleBuilderRuleOpClassifierFinished withCodeInValueSet(
+			@Nonnull String theSearchParameterName, @Nonnull String theValueSetUrl);
 
 	/**
 	 * Rule applies to resources where the given search parameter would be satisfied by a code not in the given ValueSet
@@ -134,4 +136,8 @@ public interface IAuthRuleBuilderRuleOpClassifier {
 	 * @since 6.0.0
 	 */
 	IAuthRuleFinished withCodeNotInValueSet(@Nonnull String theSearchParameterName, @Nonnull String theValueSetUrl);
+
+	IAuthRuleFinished inCompartmentWithFilter(String theCompartment, IIdType theIdElement, String theFilter);
+
+	IAuthRuleFinished withFilter(String theFilter);
 }

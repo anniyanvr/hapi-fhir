@@ -1,3 +1,22 @@
+/*
+ * #%L
+ * HAPI FHIR JPA - Search Parameters
+ * %%
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
+ * %%
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ * #L%
+ */
 package ca.uhn.fhir.jpa.searchparam;
 
 import ca.uhn.fhir.context.FhirContext;
@@ -16,15 +35,15 @@ import ca.uhn.fhir.rest.param.DateRangeParam;
 import ca.uhn.fhir.rest.param.ParamPrefixEnum;
 import ca.uhn.fhir.rest.param.QuantityParam;
 import ca.uhn.fhir.rest.param.TokenParamModifier;
-import ca.uhn.fhir.util.ObjectUtil;
 import ca.uhn.fhir.util.UrlUtil;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.annotation.Nonnull;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Validate;
+import org.apache.commons.lang3.builder.CompareToBuilder;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
 
-import javax.annotation.Nonnull;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -38,28 +57,12 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static ca.uhn.fhir.rest.param.ParamPrefixEnum.GREATERTHAN_OR_EQUALS;
+import static ca.uhn.fhir.rest.param.ParamPrefixEnum.LESSTHAN_OR_EQUALS;
+import static ca.uhn.fhir.rest.param.ParamPrefixEnum.NOT_EQUAL;
+import static org.apache.commons.lang3.StringUtils.defaultString;
 import static org.apache.commons.lang3.StringUtils.isBlank;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
-
-/*
- * #%L
- * HAPI FHIR Search Parameters
- * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
- * %%
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- * #L%
- */
 
 public class SearchParameterMap implements Serializable {
 	public static final Integer INTEGER_0 = 0;
@@ -91,6 +94,13 @@ public class SearchParameterMap implements Serializable {
 	}
 
 	/**
+	 * Constructor
+	 */
+	public SearchParameterMap(String theName, IQueryParameterType theParam) {
+		add(theName, theParam);
+	}
+
+	/**
 	 * Creates and returns a copy of this map
 	 */
 	@JsonIgnore
@@ -117,23 +127,14 @@ public class SearchParameterMap implements Serializable {
 		for (Map.Entry<String, List<List<IQueryParameterType>>> entry : mySearchParameterMap.entrySet()) {
 			List<List<IQueryParameterType>> andParams = entry.getValue();
 			List<List<IQueryParameterType>> newAndParams = new ArrayList<>();
-			for(List<IQueryParameterType> orParams: andParams) {
+			for (List<IQueryParameterType> orParams : andParams) {
 				List<IQueryParameterType> newOrParams = new ArrayList<>(orParams);
 				newAndParams.add(newOrParams);
 			}
 			map.put(entry.getKey(), newAndParams);
 		}
 
-
-
 		return map;
-	}
-
-	/**
-	 * Constructor
-	 */
-	public SearchParameterMap(String theName, IQueryParameterType theParam) {
-		add(theName, theParam);
 	}
 
 	public SummaryEnum getSummaryMode() {
@@ -157,6 +158,7 @@ public class SearchParameterMap implements Serializable {
 		return this;
 	}
 
+	@SuppressWarnings("unchecked")
 	public SearchParameterMap add(String theName, IQueryParameterAnd<?> theAnd) {
 		if (theAnd == null) {
 			return this;
@@ -165,12 +167,14 @@ public class SearchParameterMap implements Serializable {
 			put(theName, new ArrayList<>());
 		}
 
+		List<List<IQueryParameterType>> paramList = get(theName);
 		for (IQueryParameterOr<?> next : theAnd.getValuesAsQueryTokens()) {
 			if (next == null) {
 				continue;
 			}
-			get(theName).add((List<IQueryParameterType>) next.getValuesAsQueryTokens());
+			paramList.add((List<IQueryParameterType>) next.getValuesAsQueryTokens());
 		}
+
 		return this;
 	}
 
@@ -233,13 +237,20 @@ public class SearchParameterMap implements Serializable {
 		for (Include nextInclude : list) {
 			addUrlParamSeparator(b);
 			b.append(paramName);
+			if (nextInclude.isRecurse()) {
+				b.append(Constants.PARAM_INCLUDE_QUALIFIER_RECURSE);
+			}
 			b.append('=');
-			b.append(UrlUtil.escapeUrlParam(nextInclude.getParamType()));
-			b.append(':');
-			b.append(UrlUtil.escapeUrlParam(nextInclude.getParamName()));
-			if (isNotBlank(nextInclude.getParamTargetType())) {
+			if (Constants.INCLUDE_STAR.equals(nextInclude.getValue())) {
+				b.append(Constants.INCLUDE_STAR);
+			} else {
+				b.append(UrlUtil.escapeUrlParam(nextInclude.getParamType()));
 				b.append(':');
-				b.append(nextInclude.getParamTargetType());
+				b.append(UrlUtil.escapeUrlParam(nextInclude.getParamName()));
+				if (isNotBlank(nextInclude.getParamTargetType())) {
+					b.append(':');
+					b.append(nextInclude.getParamTargetType());
+				}
 			}
 		}
 	}
@@ -346,22 +357,6 @@ public class SearchParameterMap implements Serializable {
 	}
 
 	/**
-	 * This will only return true if all parameters have no modifier of any kind
-	 */
-	public boolean isAllParametersHaveNoModifier() {
-		for (List<List<IQueryParameterType>> nextParamName : values()) {
-			for (List<IQueryParameterType> nextAnd : nextParamName) {
-				for (IQueryParameterType nextOr : nextAnd) {
-					if (isNotBlank(nextOr.getQueryParameterQualifier())) {
-						return false;
-					}
-				}
-			}
-		}
-		return true;
-	}
-
-	/**
 	 * If set, tells the server to load these results synchronously, and not to load
 	 * more than X results
 	 */
@@ -395,7 +390,6 @@ public class SearchParameterMap implements Serializable {
 		return this;
 	}
 
-
 	/**
 	 * If set, tells the server the maximum number of observations to return for each
 	 * observation code in the result set of a lastn operation
@@ -412,7 +406,6 @@ public class SearchParameterMap implements Serializable {
 		myLastNMax = theLastNMax;
 		return this;
 	}
-
 
 	/**
 	 * This method creates a URL query string representation of the parameters in this
@@ -446,7 +439,6 @@ public class SearchParameterMap implements Serializable {
 				if (nextValuesOrsOut.size() > 0) {
 					nextValuesAndsOut.add(nextValuesOrsOut);
 				}
-
 			} // for AND
 
 			nextValuesAndsOut.sort(new QueryParameterOrComparator(theCtx));
@@ -479,10 +471,10 @@ public class SearchParameterMap implements Serializable {
 						b.append(',');
 					}
 					String valueAsQueryToken = nextValueOr.getValueAsQueryToken(theCtx);
+					valueAsQueryToken = defaultString(valueAsQueryToken);
 					b.append(UrlUtil.escapeUrlParam(valueAsQueryToken));
 				}
 			}
-
 		} // for keys
 
 		SortSpec sort = getSort();
@@ -515,9 +507,14 @@ public class SearchParameterMap implements Serializable {
 
 		if (getLastUpdated() != null) {
 			DateParam lb = getLastUpdated().getLowerBound();
-			addLastUpdateParam(b, ParamPrefixEnum.GREATERTHAN_OR_EQUALS, lb);
 			DateParam ub = getLastUpdated().getUpperBound();
-			addLastUpdateParam(b, ParamPrefixEnum.LESSTHAN_OR_EQUALS, ub);
+
+			if (isNotEqualsComparator(lb, ub)) {
+				addLastUpdateParam(b, NOT_EQUAL, getLastUpdated().getLowerBound());
+			} else {
+				addLastUpdateParam(b, GREATERTHAN_OR_EQUALS, lb);
+				addLastUpdateParam(b, LESSTHAN_OR_EQUALS, ub);
+			}
 		}
 
 		if (getCount() != null) {
@@ -550,8 +547,9 @@ public class SearchParameterMap implements Serializable {
 			b.append(getSearchTotalMode().getCode());
 		}
 
-		//Contained mode
-		//For some reason, instead of null here, we default to false. That said, ommitting it is identical to setting it to false.
+		// Contained mode
+		// For some reason, instead of null here, we default to false. That said, ommitting it is identical to setting
+		// it to false.
 		if (getSearchContainedMode() != SearchContainedModeEnum.FALSE) {
 			addUrlParamSeparator(b);
 			b.append(Constants.PARAM_CONTAINED);
@@ -566,6 +564,13 @@ public class SearchParameterMap implements Serializable {
 		return b.toString();
 	}
 
+	private boolean isNotEqualsComparator(DateParam theLowerBound, DateParam theUpperBound) {
+		return theLowerBound != null
+				&& theUpperBound != null
+				&& NOT_EQUAL.equals(theLowerBound.getPrefix())
+				&& NOT_EQUAL.equals(theUpperBound.getPrefix());
+	}
+
 	/**
 	 * @since 5.5.0
 	 */
@@ -573,18 +578,24 @@ public class SearchParameterMap implements Serializable {
 		return myIncludes != null && !myIncludes.isEmpty();
 	}
 
+	/**
+	 * @since 6.2.0
+	 */
+	public boolean hasRevIncludes() {
+		return myRevIncludes != null && !myRevIncludes.isEmpty();
+	}
+
 	@Override
 	public String toString() {
 		ToStringBuilder b = new ToStringBuilder(this, ToStringStyle.SHORT_PREFIX_STYLE);
-		if (isEmpty() == false) {
+		if (!isEmpty()) {
 			b.append("params", mySearchParameterMap);
 		}
-		if (getIncludes().isEmpty() == false) {
+		if (!getIncludes().isEmpty()) {
 			b.append("includes", getIncludes());
 		}
 		return b.toString();
 	}
-
 
 	public void clean() {
 		for (Map.Entry<String, List<List<IQueryParameterType>>> nextParamEntry : this.entrySet()) {
@@ -598,19 +609,16 @@ public class SearchParameterMap implements Serializable {
 	 * Given a particular named parameter, e.g. `name`, iterate over AndOrParams and remove any which are empty.
 	 */
 	private void cleanParameter(String theParamName, List<List<IQueryParameterType>> theAndOrParams) {
-		theAndOrParams
-			.forEach(
-				orList -> {
-					List<IQueryParameterType> emptyParameters = orList.stream()
-						.filter(nextOr -> nextOr.getMissing() == null)
-						.filter(nextOr -> nextOr instanceof QuantityParam)
-						.filter(nextOr -> isBlank(((QuantityParam) nextOr).getValueAsString()))
-						.collect(Collectors.toList());
+		theAndOrParams.forEach(orList -> {
+			List<IQueryParameterType> emptyParameters = orList.stream()
+					.filter(nextOr -> nextOr.getMissing() == null)
+					.filter(nextOr -> nextOr instanceof QuantityParam)
+					.filter(nextOr -> isBlank(((QuantityParam) nextOr).getValueAsString()))
+					.collect(Collectors.toList());
 
-					ourLog.debug("Ignoring empty parameter: {}", theParamName);
-					orList.removeAll(emptyParameters);
-				}
-			);
+			ourLog.debug("Ignoring empty parameter: {}", theParamName);
+			orList.removeAll(emptyParameters);
+		});
 		theAndOrParams.removeIf(List::isEmpty);
 	}
 
@@ -668,7 +676,7 @@ public class SearchParameterMap implements Serializable {
 	/**
 	 * Variant of removeByNameAndModifier for unmodified params.
 	 *
-	 * @param theName
+	 * @param theName the query parameter key
 	 * @return an And/Or List of Query Parameters matching the name with no modifier.
 	 */
 	public List<List<IQueryParameterType>> removeByNameUnmodified(String theName) {
@@ -679,9 +687,8 @@ public class SearchParameterMap implements Serializable {
 	 * Given a search parameter name and modifier (e.g. :text),
 	 * get and remove all Search Parameters matching this name and modifier
 	 *
-	 * @param theName the query parameter key
+	 * @param theName     the query parameter key
 	 * @param theModifier the qualifier you want to remove - nullable for unmodified params.
-	 *
 	 * @return an And/Or List of Query Parameters matching the qualifier.
 	 */
 	public List<List<IQueryParameterType>> removeByNameAndModifier(String theName, String theModifier) {
@@ -694,9 +701,9 @@ public class SearchParameterMap implements Serializable {
 		List<List<IQueryParameterType>> andList = mySearchParameterMap.remove(theName);
 		if (andList != null) {
 			for (List<IQueryParameterType> orList : andList) {
-				if (!orList.isEmpty() &&
-					StringUtils.defaultString(orList.get(0).getQueryParameterQualifier(), "")
-							.equals(theModifier)) {
+				if (!orList.isEmpty()
+						&& StringUtils.defaultString(orList.get(0).getQueryParameterQualifier(), "")
+								.equals(theModifier)) {
 					matchingParameters.add(orList);
 				} else {
 					remainderParameters.add(orList);
@@ -709,24 +716,24 @@ public class SearchParameterMap implements Serializable {
 			mySearchParameterMap.put(theName, remainderParameters);
 		}
 		return matchingParameters;
-
 	}
 
-	public List<List<IQueryParameterType>> removeByNameAndModifier(String theName, @Nonnull TokenParamModifier theModifier) {
+	public List<List<IQueryParameterType>> removeByNameAndModifier(
+			String theName, @Nonnull TokenParamModifier theModifier) {
 		return removeByNameAndModifier(theName, theModifier.getValue());
 	}
 
 	/**
 	 * For each search parameter in the map, extract any which have the given qualifier.
 	 * e.g. Take the url: Observation?code:text=abc&code=123&code:text=def&reason:text=somereason
-	 *
+	 * <p>
 	 * If we call this function with `:text`, it will return a map that looks like:
-	 *
+	 * <p>
 	 * code -> [[code:text=abc], [code:text=def]]
 	 * reason -> [[reason:text=somereason]]
-	 *
+	 * <p>
 	 * and the remaining search parameters in the map will be:
-	 *
+	 * <p>
 	 * code -> [[code=123]]
 	 *
 	 * @param theQualifier
@@ -742,7 +749,6 @@ public class SearchParameterMap implements Serializable {
 		}
 
 		return retVal;
-
 	}
 
 	public Map<String, List<List<IQueryParameterType>>> removeByQualifier(@Nonnull TokenParamModifier theModifier) {
@@ -809,82 +815,15 @@ public class SearchParameterMap implements Serializable {
 		}
 	}
 
-	public static class IncludeComparator implements Comparator<Include> {
-
-		@Override
-		public int compare(Include theO1, Include theO2) {
-			int retVal = StringUtils.compare(theO1.getParamType(), theO2.getParamType());
-			if (retVal == 0) {
-				retVal = StringUtils.compare(theO1.getParamName(), theO2.getParamName());
-			}
-			if (retVal == 0) {
-				retVal = StringUtils.compare(theO1.getParamTargetType(), theO2.getParamTargetType());
-			}
-			return retVal;
+	static int compare(FhirContext theCtx, IQueryParameterType theO1, IQueryParameterType theO2) {
+		CompareToBuilder b = new CompareToBuilder();
+		b.append(theO1.getMissing(), theO2.getMissing());
+		b.append(theO1.getQueryParameterQualifier(), theO2.getQueryParameterQualifier());
+		if (b.toComparison() == 0) {
+			b.append(theO1.getValueAsQueryToken(theCtx), theO2.getValueAsQueryToken(theCtx));
 		}
 
-	}
-
-	public static class QueryParameterOrComparator implements Comparator<List<IQueryParameterType>> {
-		private final FhirContext myCtx;
-
-		QueryParameterOrComparator(FhirContext theCtx) {
-			myCtx = theCtx;
-		}
-
-		@Override
-		public int compare(List<IQueryParameterType> theO1, List<IQueryParameterType> theO2) {
-			// These lists will never be empty
-			return SearchParameterMap.compare(myCtx, theO1.get(0), theO2.get(0));
-		}
-
-	}
-
-	public static class QueryParameterTypeComparator implements Comparator<IQueryParameterType> {
-
-		private final FhirContext myCtx;
-
-		QueryParameterTypeComparator(FhirContext theCtx) {
-			myCtx = theCtx;
-		}
-
-		@Override
-		public int compare(IQueryParameterType theO1, IQueryParameterType theO2) {
-			return SearchParameterMap.compare(myCtx, theO1, theO2);
-		}
-
-	}
-
-	private static int compare(FhirContext theCtx, IQueryParameterType theO1, IQueryParameterType theO2) {
-		int retVal;
-		if (theO1.getMissing() == null && theO2.getMissing() == null) {
-			retVal = 0;
-		} else if (theO1.getMissing() == null) {
-			retVal = -1;
-		} else if (theO2.getMissing() == null) {
-			retVal = 1;
-		} else if (ObjectUtil.equals(theO1.getMissing(), theO2.getMissing())) {
-			retVal = 0;
-		} else {
-			if (theO1.getMissing()) {
-				retVal = 1;
-			} else {
-				retVal = -1;
-			}
-		}
-
-		if (retVal == 0) {
-			String q1 = theO1.getQueryParameterQualifier();
-			String q2 = theO2.getQueryParameterQualifier();
-			retVal = StringUtils.compare(q1, q2);
-		}
-
-		if (retVal == 0) {
-			String v1 = theO1.getValueAsQueryToken(theCtx);
-			String v2 = theO2.getValueAsQueryToken(theCtx);
-			retVal = StringUtils.compare(v1, v2);
-		}
-		return retVal;
+		return b.toComparison();
 	}
 
 	public static SearchParameterMap newSynchronous() {
@@ -900,5 +839,55 @@ public class SearchParameterMap implements Serializable {
 		return retVal;
 	}
 
+	public static class IncludeComparator implements Comparator<Include> {
 
+		@Override
+		public int compare(Include theO1, Include theO2) {
+			int retVal = StringUtils.compare(theO1.getParamType(), theO2.getParamType());
+			if (retVal == 0) {
+				retVal = StringUtils.compare(theO1.getParamName(), theO2.getParamName());
+			}
+			if (retVal == 0) {
+				retVal = StringUtils.compare(theO1.getParamTargetType(), theO2.getParamTargetType());
+			}
+			return retVal;
+		}
+	}
+
+	public static class QueryParameterOrComparator implements Comparator<List<IQueryParameterType>> {
+		private final FhirContext myCtx;
+
+		QueryParameterOrComparator(FhirContext theCtx) {
+			myCtx = theCtx;
+		}
+
+		@Override
+		public int compare(List<IQueryParameterType> theO1, List<IQueryParameterType> theO2) {
+			// These lists will never be empty
+			return SearchParameterMap.compare(myCtx, theO1.get(0), theO2.get(0));
+		}
+	}
+
+	public static class QueryParameterTypeComparator implements Comparator<IQueryParameterType> {
+
+		private final FhirContext myCtx;
+
+		QueryParameterTypeComparator(FhirContext theCtx) {
+			myCtx = theCtx;
+		}
+
+		@Override
+		public int compare(IQueryParameterType theO1, IQueryParameterType theO2) {
+			return SearchParameterMap.compare(myCtx, theO1, theO2);
+		}
+	}
+
+	public List<SortSpec> getAllChainsInOrder() {
+		final List<SortSpec> allChainsInOrder = new ArrayList<>();
+		for (SortSpec sortSpec = getSort(); sortSpec != null; sortSpec = sortSpec.getChain()) {
+			allChainsInOrder.add(sortSpec);
+		}
+
+		return Collections.unmodifiableList(allChainsInOrder);
+	}
 }

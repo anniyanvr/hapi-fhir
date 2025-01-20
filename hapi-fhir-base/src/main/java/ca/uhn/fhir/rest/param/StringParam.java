@@ -1,10 +1,8 @@
-package ca.uhn.fhir.rest.param;
-
 /*
  * #%L
  * HAPI FHIR - Core Library
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +17,7 @@ package ca.uhn.fhir.rest.param;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.rest.param;
 
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.model.api.IQueryParameterType;
@@ -29,22 +28,26 @@ import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.apache.commons.lang3.StringUtils.defaultString;
 
 public class StringParam extends BaseParam implements IQueryParameterType {
 
+	private static final Logger ourLog = LoggerFactory.getLogger(StringParam.class);
+
+	private boolean myText;
 	private boolean myContains;
 	private boolean myExact;
 	private String myValue;
 
-	private Boolean myMdmExpand;
+	private Boolean myNicknameExpand;
 
 	/**
 	 * Constructor
 	 */
-	public StringParam() {
-	}
+	public StringParam() {}
 
 	/**
 	 * Constructor
@@ -67,6 +70,8 @@ public class StringParam extends BaseParam implements IQueryParameterType {
 			return Constants.PARAMQUALIFIER_STRING_EXACT;
 		} else if (isContains()) {
 			return Constants.PARAMQUALIFIER_STRING_CONTAINS;
+		} else if (isText()) {
+			return Constants.PARAMQUALIFIER_STRING_TEXT;
 		} else {
 			return null;
 		}
@@ -77,27 +82,38 @@ public class StringParam extends BaseParam implements IQueryParameterType {
 		return ParameterUtil.escape(myValue);
 	}
 
-	public boolean isMdmExpand() {
-		return myMdmExpand != null && myMdmExpand;
+	public boolean isNicknameExpand() {
+		return myNicknameExpand != null && myNicknameExpand;
 	}
 
-	public StringParam setMdmExpand(boolean theMdmExpand) {
-		myMdmExpand = theMdmExpand;
+	public StringParam setNicknameExpand(boolean theNicknameExpand) {
+		myNicknameExpand = theNicknameExpand;
 		return this;
 	}
 
 	@Override
 	public int hashCode() {
 		return new HashCodeBuilder(17, 37)
-			.append(myExact)
-			.append(myContains)
-			.append(myValue)
-			.append(getMissing())
-			.toHashCode();
+				.append(myExact)
+				.append(myText)
+				.append(myContains)
+				.append(myValue)
+				.append(getMissing())
+				.toHashCode();
 	}
 
 	@Override
 	void doSetValueAsQueryToken(FhirContext theContext, String theParamName, String theQualifier, String theValue) {
+		if (Constants.PARAMQUALIFIER_NICKNAME.equals(theQualifier)) {
+			myNicknameExpand = true;
+			theQualifier = "";
+
+			if (!("name".equals(theParamName) || "given".equals(theParamName))) {
+				ourLog.debug(
+						":nickname qualifier was assigned to a search parameter other than one of the intended parameters \"name\" and \"given\"");
+			}
+		}
+
 		if (Constants.PARAMQUALIFIER_STRING_EXACT.equals(theQualifier)) {
 			setExact(true);
 		} else {
@@ -108,6 +124,9 @@ public class StringParam extends BaseParam implements IQueryParameterType {
 		} else {
 			setContains(false);
 		}
+
+		setText(Constants.PARAMQUALIFIER_STRING_TEXT.equals(theQualifier));
+
 		myValue = ParameterUtil.unescape(theValue);
 	}
 
@@ -127,6 +146,7 @@ public class StringParam extends BaseParam implements IQueryParameterType {
 
 		EqualsBuilder eb = new EqualsBuilder();
 		eb.append(myExact, other.myExact);
+		eb.append(myText, other.myText);
 		eb.append(myContains, other.myContains);
 		eb.append(myValue, other.myValue);
 		eb.append(getMissing(), other.getMissing());
@@ -151,6 +171,19 @@ public class StringParam extends BaseParam implements IQueryParameterType {
 		return defaultString(myValue);
 	}
 
+	public boolean isText() {
+		return myText;
+	}
+
+	public void setText(boolean theText) {
+		myText = theText;
+		if (myText) {
+			setContains(false);
+			setExact(false);
+			setMissing(null);
+		}
+	}
+
 	/**
 	 * String parameter modifier <code>:contains</code>
 	 */
@@ -164,6 +197,7 @@ public class StringParam extends BaseParam implements IQueryParameterType {
 	public StringParam setContains(boolean theContains) {
 		myContains = theContains;
 		if (myContains) {
+			setText(false);
 			setExact(false);
 			setMissing(null);
 		}
@@ -181,6 +215,7 @@ public class StringParam extends BaseParam implements IQueryParameterType {
 	public StringParam setExact(boolean theExact) {
 		myExact = theExact;
 		if (myExact) {
+			setText(false);
 			setContains(false);
 			setMissing(null);
 		}
@@ -191,6 +226,9 @@ public class StringParam extends BaseParam implements IQueryParameterType {
 	public String toString() {
 		ToStringBuilder builder = new ToStringBuilder(this, ToStringStyle.SHORT_PREFIX_STYLE);
 		builder.append("value", getValue());
+		if (myText) {
+			builder.append("text", myText);
+		}
 		if (myExact) {
 			builder.append("exact", myExact);
 		}
@@ -202,5 +240,4 @@ public class StringParam extends BaseParam implements IQueryParameterType {
 		}
 		return builder.toString();
 	}
-
 }

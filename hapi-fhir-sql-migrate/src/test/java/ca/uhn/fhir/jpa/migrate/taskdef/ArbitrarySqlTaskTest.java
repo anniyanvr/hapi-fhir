@@ -1,6 +1,6 @@
 package ca.uhn.fhir.jpa.migrate.taskdef;
 
-import ca.uhn.fhir.interceptor.model.RequestPartitionId;
+import ca.uhn.fhir.jpa.migrate.MigrationTaskList;
 import ca.uhn.fhir.jpa.migrate.tasks.api.BaseMigrationTasks;
 import ca.uhn.fhir.util.VersionEnum;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class ArbitrarySqlTaskTest extends BaseTest {
 
@@ -53,11 +53,11 @@ public class ArbitrarySqlTaskTest extends BaseTest {
 
 
 		List<Map<String, Object>> rows = executeQuery("select * from HFJ_RES_PARAM_PRESENT order by PID asc");
-		assertEquals(2, rows.size());
-		assertEquals(100L, rows.get(0).get("PID"));
-		assertEquals(-844694102L, rows.get(0).get("HASH_PRESENT"));
-		assertEquals(101L, rows.get(1).get("PID"));
-		assertEquals(1197628431L, rows.get(1).get("HASH_PRESENT"));
+		assertThat(rows).hasSize(2);
+		assertThat(rows.get(0)).containsEntry("PID", 100L);
+		assertThat(rows.get(0)).containsEntry("HASH_PRESENT", -844694102L);
+		assertThat(rows.get(1)).containsEntry("PID", 101L);
+		assertThat(rows.get(1)).containsEntry("HASH_PRESENT", 1197628431L);
 
 	}
 
@@ -89,7 +89,7 @@ public class ArbitrarySqlTaskTest extends BaseTest {
 		executeSql("insert into TEST_UPDATE_TASK (PID, RES_TYPE, PARAM_NAME) values (1, 'Patient', 'identifier')");
 
 		List<Map<String, Object>> rows = executeQuery("select * from TEST_UPDATE_TASK");
-		assertEquals(1, rows.size());
+		assertThat(rows).hasSize(1);
 
 		BaseMigrationTasks<VersionEnum> migrator = new BaseMigrationTasks<VersionEnum>() {
 		};
@@ -98,11 +98,11 @@ public class ArbitrarySqlTaskTest extends BaseTest {
 			.addTableRawSql("1", "A")
 			.addSql("delete from TEST_UPDATE_TASK where RES_TYPE = 'Patient'");
 
-		getMigrator().addTasks(migrator.getTasks(VersionEnum.V3_3_0, VersionEnum.V3_6_0));
+		getMigrator().addTasks(migrator.getTaskList(VersionEnum.V3_3_0, VersionEnum.V3_6_0));
 		getMigrator().migrate();
 
 		rows = executeQuery("select * from TEST_UPDATE_TASK");
-		assertEquals(0, rows.size());
+		assertThat(rows).isEmpty();
 
 	}
 
@@ -117,7 +117,7 @@ public class ArbitrarySqlTaskTest extends BaseTest {
 		executeSql("insert into TEST_UPDATE_TASK (PID, RES_TYPE, PARAM_NAME) values (1, 'Encounter', 'identifier')");
 
 		List<Map<String, Object>> rows = executeQuery("select * from TEST_UPDATE_TASK");
-		assertEquals(2, rows.size());
+		assertThat(rows).hasSize(2);
 
 		BaseMigrationTasks<VersionEnum> migrator = new BaseMigrationTasks<VersionEnum>() {
 		};
@@ -126,13 +126,13 @@ public class ArbitrarySqlTaskTest extends BaseTest {
 			.executeRawSql("1", getDriverType(), "delete from TEST_UPDATE_TASK where RES_TYPE = 'Patient'")
 			.executeRawSql("2", getDriverType(), "delete from TEST_UPDATE_TASK where RES_TYPE = 'Encounter'");
 
-		List<BaseTask> tasks = migrator.getTasks(VersionEnum.V3_3_0, VersionEnum.V3_6_0);
-		ourLog.info("Have tasks: {}", tasks);
-		getMigrator().addTasks(tasks);
+		MigrationTaskList taskList = migrator.getTaskList(VersionEnum.V3_3_0, VersionEnum.V3_6_0);
+		ourLog.info("Have tasks: {}", taskList);
+		getMigrator().addTasks(taskList);
 		getMigrator().migrate();
 
 		rows = executeQuery("select * from TEST_UPDATE_TASK");
-		assertEquals(0, rows.size());
+		assertThat(rows).isEmpty();
 
 	}
 

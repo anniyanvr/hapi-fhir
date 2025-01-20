@@ -1,10 +1,12 @@
 package ca.uhn.fhir.model;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import ca.uhn.fhir.context.BaseRuntimeDeclaredChildDefinition;
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.context.RuntimeResourceDefinition;
 import ca.uhn.fhir.i18n.Msg;
-import ca.uhn.fhir.parser.DataFormatException;
 import ca.uhn.fhir.util.FhirTerser;
 import ca.uhn.fhir.util.TestUtil;
 import org.hl7.fhir.dstu3.model.Appointment;
@@ -27,10 +29,9 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.fail;
+
 
 public class ModelDstu3Test {
 
@@ -60,11 +61,11 @@ public class ModelDstu3Test {
 	public void testModelBindings() {
 		FhirTerser t = ourCtx.newTerser();
 		RuntimeResourceDefinition def = ourCtx.getResourceDefinition(Patient.class);
-		assertEquals("http://hl7.org/fhir/ValueSet/administrative-gender", ((BaseRuntimeDeclaredChildDefinition)def.getChildByName("gender")).getBindingValueSet());
-		assertEquals("http://hl7.org/fhir/ValueSet/link-type", ((BaseRuntimeDeclaredChildDefinition)t.getDefinition(Patient.class, "Patient.link.type")).getBindingValueSet());
+		assertEquals("http://hl7.org/fhir/ValueSet/administrative-gender", ((BaseRuntimeDeclaredChildDefinition) def.getChildByName("gender")).getBindingValueSet());
+		assertEquals("http://hl7.org/fhir/ValueSet/link-type", ((BaseRuntimeDeclaredChildDefinition) t.getDefinition(Patient.class, "Patient.link.type")).getBindingValueSet());
 
 		def = ourCtx.getResourceDefinition(Appointment.class);
-		assertEquals("http://hl7.org/fhir/ValueSet/appointmentstatus", ((BaseRuntimeDeclaredChildDefinition)def.getChildByName("status")).getBindingValueSet());
+		assertEquals("http://hl7.org/fhir/ValueSet/appointmentstatus", ((BaseRuntimeDeclaredChildDefinition) def.getChildByName("status")).getBindingValueSet());
 	}
 
 	/**
@@ -161,8 +162,7 @@ public class ModelDstu3Test {
 		new InstantType("2019-01-01T00:00:00.000Z");
 		try {
 			new InstantType("2019-01-01T00:00Z");
-			fail();
-		} catch (DataFormatException e) {
+			fail();		} catch (IllegalArgumentException e) {
 			// good
 		}
 	}

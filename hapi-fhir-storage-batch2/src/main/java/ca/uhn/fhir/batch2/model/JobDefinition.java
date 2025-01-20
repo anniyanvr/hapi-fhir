@@ -1,10 +1,8 @@
-package ca.uhn.fhir.batch2.model;
-
 /*-
  * #%L
  * HAPI FHIR JPA Server - Batch2 Task Processor
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,30 +17,55 @@ package ca.uhn.fhir.batch2.model;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.batch2.model;
 
+import ca.uhn.fhir.batch2.api.IJobCompletionHandler;
+import ca.uhn.fhir.batch2.api.IJobParametersValidator;
 import ca.uhn.fhir.batch2.api.IJobStepWorker;
+import ca.uhn.fhir.batch2.api.IReductionStepWorker;
 import ca.uhn.fhir.batch2.api.VoidModel;
+import ca.uhn.fhir.context.ConfigurationException;
+import ca.uhn.fhir.i18n.Msg;
 import ca.uhn.fhir.model.api.IModelJson;
+import ca.uhn.fhir.util.Logs;
+import jakarta.annotation.Nonnull;
+import jakarta.annotation.Nullable;
 import org.apache.commons.lang3.Validate;
+import org.slf4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
-public class JobDefinition {
-
+public class JobDefinition<PT extends IModelJson> {
+	private static final Logger ourLog = Logs.getBatchTroubleshootingLog();
 	public static final int ID_MAX_LENGTH = 100;
 
 	private final String myJobDefinitionId;
 	private final int myJobDefinitionVersion;
-	private final Class<? extends IModelJson> myParametersType;
-	private final List<JobDefinitionStep<?, ?, ?>> mySteps;
+	private final Class<PT> myParametersType;
+	private final List<JobDefinitionStep<PT, ?, ?>> mySteps;
 	private final String myJobDescription;
+	private final IJobParametersValidator<PT> myParametersValidator;
+	private final boolean myGatedExecution;
+	private final List<String> myStepIds;
+	private final IJobCompletionHandler<PT> myCompletionHandler;
+	private final IJobCompletionHandler<PT> myErrorHandler;
 
 	/**
 	 * Constructor
 	 */
-	private JobDefinition(String theJobDefinitionId, int theJobDefinitionVersion, String theJobDescription, Class<? extends IModelJson> theParametersType, List<JobDefinitionStep<?, ?, ?>> theSteps) {
+	private JobDefinition(
+			String theJobDefinitionId,
+			int theJobDefinitionVersion,
+			String theJobDescription,
+			Class<PT> theParametersType,
+			List<JobDefinitionStep<PT, ?, ?>> theSteps,
+			IJobParametersValidator<PT> theParametersValidator,
+			boolean theGatedExecution,
+			IJobCompletionHandler<PT> theCompletionHandler,
+			IJobCompletionHandler<PT> theErrorHandler) {
 		Validate.isTrue(theJobDefinitionId.length() <= ID_MAX_LENGTH, "Maximum ID length is %d", ID_MAX_LENGTH);
 		Validate.notBlank(theJobDefinitionId, "No job definition ID supplied");
 		Validate.notBlank(theJobDescription, "No job description supplied");
@@ -52,9 +75,30 @@ public class JobDefinition {
 		myJobDefinitionVersion = theJobDefinitionVersion;
 		myJobDescription = theJobDescription;
 		mySteps = theSteps;
+		myStepIds = mySteps.stream().map(JobDefinitionStep::getStepId).collect(Collectors.toList());
 		myParametersType = theParametersType;
+		myParametersValidator = theParametersValidator;
+		myGatedExecution = theGatedExecution;
+		myCompletionHandler = theCompletionHandler;
+		myErrorHandler = theErrorHandler;
 	}
 
+	@Nullable
+	public IJobCompletionHandler<PT> getCompletionHandler() {
+		return myCompletionHandler;
+	}
+
+	@Nullable
+	public IJobCompletionHandler<PT> getErrorHandler() {
+		return myErrorHandler;
+	}
+
+	@Nullable
+	public IJobParametersValidator<PT> getParametersValidator() {
+		return myParametersValidator;
+	}
+
+	@SuppressWarnings("unused")
 	public String getJobDescription() {
 		return myJobDescription;
 	}
@@ -76,33 +120,96 @@ public class JobDefinition {
 	/**
 	 * @return Returns the parameters that this job can accept as input to create a new instance
 	 */
-	public Class<? extends IModelJson> getParametersType() {
+	public Class<PT> getParametersType() {
 		return myParametersType;
 	}
 
 	/**
 	 * @return Returns the processing steps for this job
 	 */
-	public List<JobDefinitionStep<?, ?, ?>> getSteps() {
+	public List<JobDefinitionStep<PT, ?, ?>> getSteps() {
 		return mySteps;
 	}
 
-	public static Builder<IModelJson> newBuilder() {
-		return new Builder<>();
+	/**
+	 *
+	 * @return Returns the stepId of the first step
+	 * @throws IndexOutOfBoundsException if there is no first step
+	 */
+	public String getFirstStepId() {
+		JobDefinitionStep<PT, ?, ?> firstStep = mySteps.get(0);
+		return firstStep.getStepId();
 	}
 
-	public static class Builder<PT extends IModelJson> {
+	public boolean isGatedExecution() {
+		return myGatedExecution;
+	}
 
-		private final List<JobDefinitionStep<?,?,?>> mySteps = new ArrayList<>();
+	public JobDefinitionStep<?, ?, ?> getStepById(String theId) {
+		return getSteps().stream()
+				.filter(s -> s.getStepId().equals(theId))
+				.findFirst()
+				.orElse(null);
+	}
+
+	public boolean isLastStepReduction() {
+		int stepCount = getSteps().size();
+		return stepCount >= 1 && getSteps().get(stepCount - 1).isReductionStep();
+	}
+
+	public int getStepIndex(String theStepId) {
+		int retVal = myStepIds.indexOf(theStepId);
+		Validate.isTrue(retVal != -1);
+		return retVal;
+	}
+
+	public static class Builder<PT extends IModelJson, NIT extends IModelJson> {
+
+		private final List<JobDefinitionStep<PT, ?, ?>> mySteps;
 		private String myJobDefinitionId;
 		private int myJobDefinitionVersion;
 		private String myJobDescription;
 		private Class<PT> myJobParametersType;
+		private Class<NIT> myNextInputType;
+
+		@Nullable
+		private IJobParametersValidator<PT> myParametersValidator;
+
+		private boolean myGatedExecution;
+		private IJobCompletionHandler<PT> myCompletionHandler;
+		private IJobCompletionHandler<PT> myErrorHandler;
+
+		Builder() {
+			mySteps = new ArrayList<>();
+		}
+
+		Builder(
+				List<JobDefinitionStep<PT, ?, ?>> theSteps,
+				String theJobDefinitionId,
+				int theJobDefinitionVersion,
+				String theJobDescription,
+				Class<PT> theJobParametersType,
+				Class<NIT> theNextInputType,
+				@Nullable IJobParametersValidator<PT> theParametersValidator,
+				boolean theGatedExecution,
+				IJobCompletionHandler<PT> theCompletionHandler,
+				IJobCompletionHandler<PT> theErrorHandler) {
+			mySteps = theSteps;
+			myJobDefinitionId = theJobDefinitionId;
+			myJobDefinitionVersion = theJobDefinitionVersion;
+			myJobDescription = theJobDescription;
+			myJobParametersType = theJobParametersType;
+			myNextInputType = theNextInputType;
+			myParametersValidator = theParametersValidator;
+			myGatedExecution = theGatedExecution;
+			myCompletionHandler = theCompletionHandler;
+			myErrorHandler = theErrorHandler;
+		}
 
 		/**
 		 * @param theJobDefinitionId A unique identifier for the job definition (i.e. for the "kind" of job)
 		 */
-		public Builder<PT> setJobDefinitionId(String theJobDefinitionId) {
+		public Builder<PT, NIT> setJobDefinitionId(String theJobDefinitionId) {
 			myJobDefinitionId = theJobDefinitionId;
 			return this;
 		}
@@ -110,7 +217,7 @@ public class JobDefinition {
 		/**
 		 * @param theJobDefinitionVersion A unique identifier for the version of the job definition. Higher means newer but numbers have no other meaning. Must be greater than 0.
 		 */
-		public Builder<PT> setJobDefinitionVersion(int theJobDefinitionVersion) {
+		public Builder<PT, NIT> setJobDefinitionVersion(int theJobDefinitionVersion) {
 			Validate.isTrue(theJobDefinitionVersion > 0, "theJobDefinitionVersion must be > 0");
 			myJobDefinitionVersion = theJobDefinitionVersion;
 			return this;
@@ -125,9 +232,53 @@ public class JobDefinition {
 		 * @param theStepDescription A description of this step
 		 * @param theStepWorker      The worker that will actually perform this step
 		 */
-		public <OT extends IModelJson> Builder<PT> addFirstStep(String theStepId, String theStepDescription, Class<OT> theOutputType, IJobStepWorker<PT, VoidModel, OT> theStepWorker) {
-			mySteps.add(new JobDefinitionStep<>(theStepId, theStepDescription, theStepWorker, VoidModel.class, theOutputType));
-			return this;
+		public <OT extends IModelJson> Builder<PT, OT> addFirstStep(
+				String theStepId,
+				String theStepDescription,
+				Class<OT> theOutputType,
+				IJobStepWorker<PT, VoidModel, OT> theStepWorker) {
+			mySteps.add(new JobDefinitionStep<>(
+					theStepId, theStepDescription, theStepWorker, VoidModel.class, theOutputType));
+			return new Builder<>(
+					mySteps,
+					myJobDefinitionId,
+					myJobDefinitionVersion,
+					myJobDescription,
+					myJobParametersType,
+					theOutputType,
+					myParametersValidator,
+					myGatedExecution,
+					myCompletionHandler,
+					myErrorHandler);
+		}
+
+		/**
+		 * Adds a processing step for this job.
+		 *
+		 * @param theStepId          A unique identifier for this step. This only needs to be unique within the scope
+		 *                           of the individual job definition (i.e. duplicates are fine for different jobs, or
+		 *                           even different versions of the same job)
+		 * @param theStepDescription A description of this step
+		 * @param theStepWorker      The worker that will actually perform this step
+		 */
+		public <OT extends IModelJson> Builder<PT, OT> addIntermediateStep(
+				String theStepId,
+				String theStepDescription,
+				Class<OT> theOutputType,
+				IJobStepWorker<PT, NIT, OT> theStepWorker) {
+			mySteps.add(new JobDefinitionStep<>(
+					theStepId, theStepDescription, theStepWorker, myNextInputType, theOutputType));
+			return new Builder<>(
+					mySteps,
+					myJobDefinitionId,
+					myJobDefinitionVersion,
+					myJobDescription,
+					myJobParametersType,
+					theOutputType,
+					myParametersValidator,
+					myGatedExecution,
+					myCompletionHandler,
+					myErrorHandler);
 		}
 
 		/**
@@ -139,55 +290,167 @@ public class JobDefinition {
 		 * @param theStepDescription A description of this step
 		 * @param theStepWorker      The worker that will actually perform this step
 		 */
-		public <IT extends IModelJson, OT extends IModelJson> Builder<PT> addIntermediateStep(String theStepId, String theStepDescription, Class<IT> theInputType, Class<OT> theOutputType, IJobStepWorker<PT, IT, OT> theStepWorker) {
-			mySteps.add(new JobDefinitionStep<>(theStepId, theStepDescription, theStepWorker, theInputType, theOutputType));
-			return this;
+		public Builder<PT, VoidModel> addLastStep(
+				String theStepId, String theStepDescription, IJobStepWorker<PT, NIT, VoidModel> theStepWorker) {
+			mySteps.add(new JobDefinitionStep<>(
+					theStepId, theStepDescription, theStepWorker, myNextInputType, VoidModel.class));
+			return new Builder<>(
+					mySteps,
+					myJobDefinitionId,
+					myJobDefinitionVersion,
+					myJobDescription,
+					myJobParametersType,
+					VoidModel.class,
+					myParametersValidator,
+					myGatedExecution,
+					myCompletionHandler,
+					myErrorHandler);
 		}
 
-		/**
-		 * Adds a processing step for this job.
-		 *
-		 * @param theStepId          A unique identifier for this step. This only needs to be unique within the scope
-		 *                           of the individual job definition (i.e. diuplicates are fine for different jobs, or
-		 *                           even different versions of the same job)
-		 * @param theStepDescription A description of this step
-		 * @param theStepWorker      The worker that will actually perform this step
-		 */
-		public <IT extends IModelJson> Builder<PT> addLastStep(String theStepId, String theStepDescription, Class<IT> theInputType, IJobStepWorker<PT, IT, VoidModel> theStepWorker) {
-			mySteps.add(new JobDefinitionStep<>(theStepId, theStepDescription, theStepWorker, theInputType, VoidModel.class));
-			return this;
+		public <OT extends IModelJson> Builder<PT, OT> addFinalReducerStep(
+				String theStepId,
+				String theStepDescription,
+				Class<OT> theOutputType,
+				IReductionStepWorker<PT, NIT, OT> theStepWorker) {
+			if (!myGatedExecution) {
+				throw new ConfigurationException(Msg.code(2106)
+						+ String.format("Job Definition %s has a reducer step but is not gated", myJobDefinitionId));
+			}
+			mySteps.add(new JobDefinitionReductionStep<>(
+					theStepId, theStepDescription, theStepWorker, myNextInputType, theOutputType));
+			return new Builder<>(
+					mySteps,
+					myJobDefinitionId,
+					myJobDefinitionVersion,
+					myJobDescription,
+					myJobParametersType,
+					theOutputType,
+					myParametersValidator,
+					myGatedExecution,
+					myCompletionHandler,
+					myErrorHandler);
 		}
 
-		public JobDefinition build() {
+		public JobDefinition<PT> build() {
 			Validate.notNull(myJobParametersType, "No job parameters type was supplied");
-			return new JobDefinition(myJobDefinitionId, myJobDefinitionVersion, myJobDescription, myJobParametersType, Collections.unmodifiableList(mySteps));
+			return new JobDefinition<>(
+					myJobDefinitionId,
+					myJobDefinitionVersion,
+					myJobDescription,
+					myJobParametersType,
+					Collections.unmodifiableList(mySteps),
+					myParametersValidator,
+					myGatedExecution,
+					myCompletionHandler,
+					myErrorHandler);
 		}
 
-		public Builder<PT> setJobDescription(String theJobDescription) {
+		public Builder<PT, NIT> setJobDescription(String theJobDescription) {
 			myJobDescription = theJobDescription;
 			return this;
 		}
 
 		/**
 		 * Sets the datatype for the parameters used by this job. This model is a
-		 * {@link IModelJson} JSON serializable object. Fields should be annotated with
-		 * any appropriate <code>javax.validation</code> annotations (e.g.
-		 * {@link javax.validation.constraints.Min} or {@link javax.validation.constraints.Pattern}).
+		 * {@link IModelJson} JSON serializable object.
 		 *
+		 * <p>
+		 * <b>Validation:</b>
+		 * Fields should be annotated with
+		 * any appropriate <code>jakarta.validation</code> (JSR 380) annotations (e.g.
+		 * {@link jakarta.validation.constraints.Min} or {@link jakarta.validation.constraints.Pattern}).
+		 * In addition, if there are validation rules that are too complex to express using
+		 * JSR 380, you can also specify a programmatic validator using {@link #setParametersValidator(IJobParametersValidator)}.
+		 * </p>
+		 * <p>
 		 * Any fields that contain sensitive data (e.g. passwords) that should not be
-		 * provided back to the end user must be marked with {@link ca.uhn.fhir.batch2.api.PasswordField}
+		 * provided back to the end user must be marked with {@link ca.uhn.fhir.model.api.annotation.PasswordField}
 		 * as well.
+		 * </p>
 		 *
-		 * @see ca.uhn.fhir.batch2.api.PasswordField
-		 * @see javax.validation.constraints
+		 * @see ca.uhn.fhir.model.api.annotation.PasswordField
+		 * @see jakarta.validation.constraints
+		 * @see JobDefinition.Builder#setParametersValidator(IJobParametersValidator)
 		 */
 		@SuppressWarnings("unchecked")
-		public <NPT extends IModelJson> Builder<NPT> setParametersType(Class<NPT> theJobParametersType) {
+		public <NPT extends IModelJson> Builder<NPT, NIT> setParametersType(@Nonnull Class<NPT> theJobParametersType) {
 			Validate.notNull(theJobParametersType, "theJobParametersType must not be null");
+			Validate.isTrue(
+					myJobParametersType == null,
+					"Can not supply multiple parameters types, already have: %s",
+					myJobParametersType);
 			myJobParametersType = (Class<PT>) theJobParametersType;
-			return (Builder<NPT>) this;
+			return (Builder<NPT, NIT>) this;
 		}
 
+		/**
+		 * Supplies a programmatic job parameters validator. Note that as much as possible,
+		 * JSR 380 annotations should be used for validation. This method is provided only
+		 * to satisfy rules that are too complex to be expressed using JSR 380.
+		 *
+		 * @param theParametersValidator The validator (must not be null. Do not call this method at all if you do not want a parameters validator).
+		 */
+		public Builder<PT, NIT> setParametersValidator(@Nonnull IJobParametersValidator<PT> theParametersValidator) {
+			Validate.notNull(theParametersValidator, "theParametersValidator must not be null");
+			Validate.isTrue(
+					myParametersValidator == null,
+					"Can not supply multiple parameters validators. Already have: %s",
+					myParametersValidator);
+			myParametersValidator = theParametersValidator;
+			return this;
+		}
+
+		/**
+		 * If this is set, the framework will wait for all work chunks to be
+		 * processed for an individual step before moving on to beginning
+		 * processing on the next step. Otherwise, processing on subsequent
+		 * steps may begin as soon as any data has been produced.
+		 * <p>
+		 * This is useful in a few cases:
+		 * <ul>
+		 *    <li>
+		 *       If there are potential constraint issues, e.g. data being
+		 *    	written by the third step depends on all data from the
+		 *    	second step already being written
+		 *    </li>
+		 *    <li>
+		 *       If multiple steps require expensive database queries, it may
+		 *       reduce the chances of timeouts to ensure that they are run
+		 *       discretely.
+		 *    </li>
+		 * </ul>
+		 * </p>
+		 * <p>
+		 * Setting this mode means the job may take longer, since it will
+		 * rely on a polling mechanism to determine that one step is
+		 * complete before beginning any processing for the next step.
+		 * </p>
+		 */
+		public Builder<PT, NIT> gatedExecution() {
+			myGatedExecution = true;
+			return this;
+		}
+
+		/**
+		 * Supplies an optional callback that will be invoked when the job is complete
+		 */
+		public Builder<PT, NIT> completionHandler(IJobCompletionHandler<PT> theCompletionHandler) {
+			Validate.isTrue(myCompletionHandler == null, "Can not supply multiple completion handlers");
+			myCompletionHandler = theCompletionHandler;
+			return this;
+		}
+
+		/**
+		 * Supplies an optional callback that will be invoked if the job fails
+		 */
+		public Builder<PT, NIT> errorHandler(IJobCompletionHandler<PT> theErrorHandler) {
+			Validate.isTrue(myErrorHandler == null, "Can not supply multiple error handlers");
+			myErrorHandler = theErrorHandler;
+			return this;
+		}
 	}
 
+	public static Builder<IModelJson, VoidModel> newBuilder() {
+		return new Builder<>();
+	}
 }

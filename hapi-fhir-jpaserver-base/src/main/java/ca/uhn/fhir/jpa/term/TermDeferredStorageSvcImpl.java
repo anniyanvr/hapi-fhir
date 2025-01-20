@@ -1,10 +1,8 @@
-package ca.uhn.fhir.jpa.term;
-
 /*-
  * #%L
  * HAPI FHIR JPA Server
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,9 +17,12 @@ package ca.uhn.fhir.jpa.term;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.jpa.term;
 
-import ca.uhn.fhir.i18n.Msg;
-import ca.uhn.fhir.jpa.batch.api.IBatchJobSubmitter;
+import ca.uhn.fhir.batch2.api.IJobCoordinator;
+import ca.uhn.fhir.batch2.model.JobInstance;
+import ca.uhn.fhir.batch2.model.JobInstanceStartRequest;
+import ca.uhn.fhir.jpa.batch.models.Batch2JobStartResponse;
 import ca.uhn.fhir.jpa.dao.data.ITermCodeSystemDao;
 import ca.uhn.fhir.jpa.dao.data.ITermCodeSystemVersionDao;
 import ca.uhn.fhir.jpa.dao.data.ITermConceptDao;
@@ -32,36 +33,33 @@ import ca.uhn.fhir.jpa.entity.TermConcept;
 import ca.uhn.fhir.jpa.entity.TermConceptParentChildLink;
 import ca.uhn.fhir.jpa.model.entity.ResourceTable;
 import ca.uhn.fhir.jpa.model.sched.HapiJob;
+import ca.uhn.fhir.jpa.model.sched.IHasScheduledJobs;
 import ca.uhn.fhir.jpa.model.sched.ISchedulerService;
 import ca.uhn.fhir.jpa.model.sched.ScheduledJobDefinition;
-import ca.uhn.fhir.jpa.term.api.ITermCodeSystemStorageSvc;
 import ca.uhn.fhir.jpa.term.api.ITermDeferredStorageSvc;
 import ca.uhn.fhir.jpa.term.api.ITermVersionAdapterSvc;
-import ca.uhn.fhir.rest.server.exceptions.InternalErrorException;
+import ca.uhn.fhir.jpa.term.models.TermCodeSystemDeleteJobParameters;
+import ca.uhn.fhir.jpa.term.models.TermCodeSystemDeleteVersionJobParameters;
+import ca.uhn.fhir.rest.api.server.SystemRequestDetails;
 import ca.uhn.fhir.util.StopWatch;
+import ca.uhn.fhir.util.TimeoutManager;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.lang3.Validate;
+import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.hl7.fhir.r4.model.ConceptMap;
 import org.hl7.fhir.r4.model.ValueSet;
 import org.quartz.JobExecutionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.batch.core.JobExecution;
-import org.springframework.batch.core.JobParameter;
-import org.springframework.batch.core.JobParameters;
-import org.springframework.batch.core.JobParametersInvalidException;
-import org.springframework.batch.core.launch.JobExecutionNotRunningException;
-import org.springframework.batch.core.launch.JobOperator;
-import org.springframework.batch.core.launch.NoSuchJobExecutionException;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import javax.annotation.PostConstruct;
+import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -71,53 +69,57 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
-import static ca.uhn.fhir.jpa.batch.config.BatchConstants.JOB_PARAM_CODE_SYSTEM_ID;
-import static ca.uhn.fhir.jpa.batch.config.BatchConstants.JOB_PARAM_CODE_SYSTEM_VERSION_ID;
-import static ca.uhn.fhir.jpa.batch.config.BatchConstants.TERM_CODE_SYSTEM_DELETE_JOB_NAME;
-import static ca.uhn.fhir.jpa.batch.config.BatchConstants.TERM_CODE_SYSTEM_VERSION_DELETE_JOB_NAME;
+import static ca.uhn.fhir.batch2.jobs.termcodesystem.TermCodeSystemJobConfig.TERM_CODE_SYSTEM_DELETE_JOB_NAME;
+import static ca.uhn.fhir.batch2.jobs.termcodesystem.TermCodeSystemJobConfig.TERM_CODE_SYSTEM_VERSION_DELETE_JOB_NAME;
 
-public class TermDeferredStorageSvcImpl implements ITermDeferredStorageSvc {
+public class TermDeferredStorageSvcImpl implements ITermDeferredStorageSvc, IHasScheduledJobs {
 
 	private static final Logger ourLog = LoggerFactory.getLogger(TermDeferredStorageSvcImpl.class);
-	final private List<TermCodeSystem> myDeferredCodeSystemsDeletions = Collections.synchronizedList(new ArrayList<>());
-	final private Queue<TermCodeSystemVersion> myDeferredCodeSystemVersionsDeletions = new ConcurrentLinkedQueue<>();
-	final private List<TermConcept> myDeferredConcepts = Collections.synchronizedList(new ArrayList<>());
-	final private List<ValueSet> myDeferredValueSets = Collections.synchronizedList(new ArrayList<>());
-	final private List<ConceptMap> myDeferredConceptMaps = Collections.synchronizedList(new ArrayList<>());
-	final private List<TermConceptParentChildLink> myConceptLinksToSaveLater = Collections.synchronizedList(new ArrayList<>());
-	final private List<JobExecution> myCurrentJobExecutions = Collections.synchronizedList(new ArrayList<>());
+	private static final long SAVE_ALL_DEFERRED_WARN_MINUTES = 1;
+	private static final long SAVE_ALL_DEFERRED_ERROR_MINUTES = 5;
+	private boolean myAllowDeferredTasksTimeout = true;
+	private static final List<String> BATCH_JOBS_TO_CARE_ABOUT =
+			List.of(TERM_CODE_SYSTEM_DELETE_JOB_NAME, TERM_CODE_SYSTEM_VERSION_DELETE_JOB_NAME);
+	private final List<TermCodeSystem> myDeferredCodeSystemsDeletions = Collections.synchronizedList(new ArrayList<>());
+	private final Queue<TermCodeSystemVersion> myDeferredCodeSystemVersionsDeletions = new ConcurrentLinkedQueue<>();
+	private final List<TermConcept> myDeferredConcepts = Collections.synchronizedList(new ArrayList<>());
+	private final List<ValueSet> myDeferredValueSets = Collections.synchronizedList(new ArrayList<>());
+	private final List<ConceptMap> myDeferredConceptMaps = Collections.synchronizedList(new ArrayList<>());
+	private final List<TermConceptParentChildLink> myConceptLinksToSaveLater =
+			Collections.synchronizedList(new ArrayList<>());
 
+	// TODO - why is this needed? it's cumbersome to maintain; consider removing it
+	/**
+	 * A list of job ids for CodeSydstemDelete and CodeSystemVersionDelete jobs that
+	 * have been scheduled (but not completed)
+	 */
+	private final List<String> myJobExecutions = Collections.synchronizedList(new ArrayList<>());
 
 	@Autowired
 	protected ITermConceptDao myConceptDao;
+
 	@Autowired
 	protected ITermCodeSystemDao myCodeSystemDao;
+
 	@Autowired
 	protected ITermCodeSystemVersionDao myCodeSystemVersionDao;
+
 	@Autowired
 	protected PlatformTransactionManager myTransactionMgr;
+
 	private boolean myProcessDeferred = true;
+
 	@Autowired
 	private ITermConceptParentChildLinkDao myConceptParentChildLinkDao;
-	@Autowired
-	private ISchedulerService mySchedulerService;
+
 	@Autowired
 	private ITermVersionAdapterSvc myTerminologyVersionAdapterSvc;
-	@Autowired
-	private ITermCodeSystemStorageSvc myCodeSystemStorageSvc;
 
 	@Autowired
-	private IBatchJobSubmitter myJobSubmitter;
+	private TermConceptDaoSvc myTermConceptDaoSvc;
 
 	@Autowired
-	private JobOperator myJobOperator;
-
-	@Autowired @Qualifier(TERM_CODE_SYSTEM_DELETE_JOB_NAME)
-	private org.springframework.batch.core.Job myTermCodeSystemDeleteJob;
-
-	@Autowired @Qualifier(TERM_CODE_SYSTEM_VERSION_DELETE_JOB_NAME)
-	private org.springframework.batch.core.Job myTermCodeSystemVersionDeleteJob;
-
+	private IJobCoordinator myJobCoordinator;
 
 	@Override
 	public void addConceptToStorageQueue(TermConcept theConcept) {
@@ -145,9 +147,11 @@ public class TermDeferredStorageSvcImpl implements ITermDeferredStorageSvc {
 
 	@Override
 	public void deleteCodeSystemForResource(ResourceTable theCodeSystemToDelete) {
-		// there are use cases (at least in tests) where the code system is not present for the resource but versions are,
-		// so, as code system deletion also deletes versions, we try the system first but if not present we also try versions
-		TermCodeSystem termCodeSystemToDelete = myCodeSystemDao.findByResourcePid(theCodeSystemToDelete.getResourceId());
+		// there are use cases (at least in tests) where the code system is not present for the resource but versions
+		// are,
+		// so, as code system deletion also deletes versions, we try the system first but if not present we also try
+		// versions
+		TermCodeSystem termCodeSystemToDelete = myCodeSystemDao.findByResourcePid(theCodeSystemToDelete.getId());
 		if (termCodeSystemToDelete != null) {
 			termCodeSystemToDelete.setCodeSystemUri("urn:uuid:" + UUID.randomUUID());
 			myCodeSystemDao.save(termCodeSystemToDelete);
@@ -155,14 +159,14 @@ public class TermDeferredStorageSvcImpl implements ITermDeferredStorageSvc {
 			return;
 		}
 
-		List<TermCodeSystemVersion> codeSystemVersionsToDelete = myCodeSystemVersionDao.findByCodeSystemResourcePid(theCodeSystemToDelete.getResourceId());
+		List<TermCodeSystemVersion> codeSystemVersionsToDelete =
+				myCodeSystemVersionDao.findByCodeSystemResourcePid(theCodeSystemToDelete.getId());
 		for (TermCodeSystemVersion codeSystemVersionToDelete : codeSystemVersionsToDelete) {
 			if (codeSystemVersionToDelete != null) {
 				myDeferredCodeSystemVersionsDeletions.add(codeSystemVersionToDelete);
 			}
 		}
 	}
-
 
 	@Override
 	public void setProcessDeferred(boolean theProcessDeferred) {
@@ -187,22 +191,35 @@ public class TermDeferredStorageSvcImpl implements ITermDeferredStorageSvc {
 		ourLog.debug("Saving {} deferred concepts...", count);
 		while (codeCount < count && myDeferredConcepts.size() > 0) {
 			TermConcept next = myDeferredConcepts.remove(0);
-			if (myCodeSystemVersionDao.findById(next.getCodeSystemVersion().getPid()).isPresent()) {
+			if (myCodeSystemVersionDao
+					.findById(next.getCodeSystemVersion().getId())
+					.isPresent()) {
 				try {
-					codeCount += myCodeSystemStorageSvc.saveConcept(next);
+					codeCount += myTermConceptDaoSvc.saveConcept(next);
 				} catch (Exception theE) {
-					ourLog.error("Exception thrown when attempting to save TermConcept {} in Code System {}",
-						next.getCode(), next.getCodeSystemVersion().getCodeSystemDisplayName(), theE);
+					ourLog.error(
+							"Exception thrown when attempting to save TermConcept {} in Code System {}",
+							next.getCode(),
+							next.getCodeSystemVersion().getCodeSystemDisplayName(),
+							theE);
 				}
 			} else {
-				ourLog.warn("Unable to save deferred TermConcept {} because Code System {} version PID {} is no longer valid. Code system may have since been replaced.",
-					next.getCode(), next.getCodeSystemVersion().getCodeSystemDisplayName(), next.getCodeSystemVersion().getPid());
+				ourLog.warn(
+						"Unable to save deferred TermConcept {} because Code System {} version PID {} is no longer valid. Code system may have since been replaced.",
+						next.getCode(),
+						next.getCodeSystemVersion().getCodeSystemDisplayName(),
+						next.getCodeSystemVersion().getPid());
 			}
 		}
 
 		if (codeCount > 0) {
-			ourLog.info("Saved {} deferred concepts ({} codes remain and {} relationships remain) in {}ms ({} codes/sec)",
-				codeCount, myDeferredConcepts.size(), myConceptLinksToSaveLater.size(), stopwatch.getMillis(), stopwatch.formatThroughput(codeCount, TimeUnit.SECONDS));
+			ourLog.info(
+					"Saved {} deferred concepts ({} codes remain and {} relationships remain) in {}ms ({} codes/sec)",
+					codeCount,
+					myDeferredConcepts.size(),
+					myConceptLinksToSaveLater.size(),
+					stopwatch.getMillis(),
+					stopwatch.formatThroughput(codeCount, TimeUnit.SECONDS));
 		}
 
 		if (codeCount == 0) {
@@ -213,9 +230,18 @@ public class TermDeferredStorageSvcImpl implements ITermDeferredStorageSvc {
 				assert next.getChild() != null;
 				assert next.getParent() != null;
 
-				if ((next.getChild().getId() == null || !myConceptDao.findById(next.getChild().getId()).isPresent())
-					|| (next.getParent().getId() == null || !myConceptDao.findById(next.getParent().getId()).isPresent())) {
-					ourLog.warn("Not inserting link from child {} to parent {} because it appears to have been deleted", next.getParent().getCode(), next.getChild().getCode());
+				if ((next.getChild().getId() == null
+								|| !myConceptDao
+										.findById(next.getChild().getPid())
+										.isPresent())
+						|| (next.getParent().getId() == null
+								|| !myConceptDao
+										.findById(next.getParent().getPid())
+										.isPresent())) {
+					ourLog.warn(
+							"Not inserting link from child {} to parent {} because it appears to have been deleted",
+							next.getParent().getCode(),
+							next.getChild().getCode());
 					continue;
 				}
 
@@ -225,8 +251,12 @@ public class TermDeferredStorageSvcImpl implements ITermDeferredStorageSvc {
 		}
 
 		if (relCount > 0) {
-			ourLog.info("Saved {} deferred relationships ({} remain) in {}ms ({} entries/sec)",
-				relCount, myConceptLinksToSaveLater.size(), stopwatch.getMillis(), stopwatch.formatThroughput(relCount, TimeUnit.SECONDS));
+			ourLog.info(
+					"Saved {} deferred relationships ({} remain) in {}ms ({} entries/sec)",
+					relCount,
+					myConceptLinksToSaveLater.size(),
+					stopwatch.getMillis(),
+					stopwatch.formatThroughput(relCount, TimeUnit.SECONDS));
 		}
 
 		if ((myDeferredConcepts.size() + myConceptLinksToSaveLater.size()) == 0) {
@@ -259,22 +289,17 @@ public class TermDeferredStorageSvcImpl implements ITermDeferredStorageSvc {
 		clearJobExecutions();
 	}
 
-
 	private void clearJobExecutions() {
-		for (JobExecution jobExecution : myCurrentJobExecutions) {
-			if (! jobExecution.isRunning()) { continue; }
-
-			try {
-				myJobOperator.stop(jobExecution.getId());
-
-			} catch (NoSuchJobExecutionException | JobExecutionNotRunningException theE) {
-				ourLog.error("Couldn't stop job execution {}: {}", jobExecution.getId(), theE);
-			}
+		for (String id : new ArrayList<>(myJobExecutions)) {
+			myJobCoordinator.cancelInstance(id);
 		}
-
-		myCurrentJobExecutions.clear();
+		myJobExecutions.clear();
 	}
 
+	@Override
+	public void notifyJobEnded(String theId) {
+		myJobExecutions.remove(theId);
+	}
 
 	private <T> T runInTransaction(Supplier<T> theRunnable) {
 		assert !TransactionSynchronizationManager.isActualTransactionActive();
@@ -284,7 +309,22 @@ public class TermDeferredStorageSvcImpl implements ITermDeferredStorageSvc {
 
 	@Override
 	public void saveAllDeferred() {
-		while (!isStorageQueueEmpty()) {
+		TimeoutManager timeoutManager = null;
+		if (myAllowDeferredTasksTimeout) {
+			timeoutManager = new TimeoutManager(
+					TermDeferredStorageSvcImpl.class.getName() + ".saveAllDeferred()",
+					Duration.of(SAVE_ALL_DEFERRED_WARN_MINUTES, ChronoUnit.MINUTES),
+					Duration.of(SAVE_ALL_DEFERRED_ERROR_MINUTES, ChronoUnit.MINUTES));
+		}
+
+		// Don't include executing jobs here since there's no point in thrashing over and over
+		// in a busy wait while we wait for batch2 job processes to finish
+		while (!isStorageQueueEmpty(false)) {
+			if (myAllowDeferredTasksTimeout) {
+				if (timeoutManager.checkTimeout()) {
+					ourLog.info(toString());
+				}
+			}
 			saveDeferred();
 		}
 	}
@@ -297,12 +337,11 @@ public class TermDeferredStorageSvcImpl implements ITermDeferredStorageSvc {
 		}
 
 		for (int i = 0; i < 10; i++) {
-
-			if (!isDeferredConcepts() &&
-				!isConceptLinksToSaveLater() &&
-				!isDeferredValueSets() &&
-				!isDeferredConceptMaps() &&
-				!isDeferredCodeSystemDeletions()) {
+			if (!isDeferredConcepts()
+					&& !isConceptLinksToSaveLater()
+					&& !isDeferredValueSets()
+					&& !isDeferredConceptMaps()
+					&& !isDeferredCodeSystemDeletions()) {
 				return;
 			}
 
@@ -347,14 +386,12 @@ public class TermDeferredStorageSvcImpl implements ITermDeferredStorageSvc {
 		return !myDeferredCodeSystemVersionsDeletions.isEmpty();
 	}
 
-
 	private void processDeferredCodeSystemDeletions() {
 		for (TermCodeSystem next : myDeferredCodeSystemsDeletions) {
 			deleteTermCodeSystemOffline(next.getPid());
 		}
 		myDeferredCodeSystemsDeletions.clear();
 	}
-
 
 	private void processDeferredCodeSystemVersionDeletions() {
 		for (TermCodeSystemVersion next : myDeferredCodeSystemVersionsDeletions) {
@@ -363,57 +400,71 @@ public class TermDeferredStorageSvcImpl implements ITermDeferredStorageSvc {
 		myDeferredCodeSystemVersionsDeletions.clear();
 	}
 
-
 	private void deleteTermCodeSystemVersionOffline(Long theCodeSystemVersionPid) {
-		JobParameters jobParameters = new JobParameters(
-			Collections.singletonMap(
-				JOB_PARAM_CODE_SYSTEM_VERSION_ID, new JobParameter(theCodeSystemVersionPid, true) ));
+		JobInstanceStartRequest request = new JobInstanceStartRequest();
+		request.setJobDefinitionId(TERM_CODE_SYSTEM_VERSION_DELETE_JOB_NAME);
 
-		try {
+		TermCodeSystemDeleteVersionJobParameters parameters = new TermCodeSystemDeleteVersionJobParameters();
+		parameters.setCodeSystemVersionPid(theCodeSystemVersionPid);
+		request.setParameters(parameters);
 
-			JobExecution jobExecution = myJobSubmitter.runJob(myTermCodeSystemVersionDeleteJob, jobParameters);
-			myCurrentJobExecutions.add(jobExecution);
-
-		} catch (JobParametersInvalidException theE) {
-			throw new InternalErrorException(Msg.code(850) + "Offline job submission for TermCodeSystemVersion: " +
-				theCodeSystemVersionPid + " failed: " + theE);
-		}
+		Batch2JobStartResponse response = myJobCoordinator.startInstance(new SystemRequestDetails(), request);
+		myJobExecutions.add(response.getInstanceId());
 	}
-
 
 	private void deleteTermCodeSystemOffline(Long theCodeSystemPid) {
-		JobParameters jobParameters = new JobParameters(
-			Collections.singletonMap(
-				JOB_PARAM_CODE_SYSTEM_ID, new JobParameter(theCodeSystemPid, true) ));
-
-		try {
-
-			JobExecution jobExecution = myJobSubmitter.runJob(myTermCodeSystemDeleteJob, jobParameters);
-			myCurrentJobExecutions.add(jobExecution);
-
-		} catch (JobParametersInvalidException theE) {
-			throw new InternalErrorException(Msg.code(851) + "Offline job submission for TermCodeSystem: " +
-				theCodeSystemPid + " failed: " + theE);
-		}
+		TermCodeSystemDeleteJobParameters parameters = new TermCodeSystemDeleteJobParameters();
+		parameters.setTermPid(theCodeSystemPid);
+		JobInstanceStartRequest request = new JobInstanceStartRequest();
+		request.setParameters(parameters);
+		request.setJobDefinitionId(TERM_CODE_SYSTEM_DELETE_JOB_NAME);
+		Batch2JobStartResponse response = myJobCoordinator.startInstance(new SystemRequestDetails(), request);
+		myJobExecutions.add(response.getInstanceId());
 	}
 
-
 	@Override
-	public boolean isStorageQueueEmpty() {
+	public boolean isStorageQueueEmpty(boolean theIncludeExecutingJobs) {
 		boolean retVal = !isProcessDeferredPaused();
 		retVal &= !isDeferredConcepts();
 		retVal &= !isConceptLinksToSaveLater();
 		retVal &= !isDeferredValueSets();
 		retVal &= !isDeferredConceptMaps();
 		retVal &= !isDeferredCodeSystemDeletions();
-		retVal &= !isJobsExecuting();
+		if (theIncludeExecutingJobs) {
+			retVal &= !isJobsExecuting();
+		}
 		return retVal;
 	}
 
-	private boolean isJobsExecuting() {
-		return  myCurrentJobExecutions.stream().anyMatch(JobExecution::isRunning);
+	@Override
+	public boolean isJobsExecuting() {
+		cleanseEndedJobs();
+
+		return !myJobExecutions.isEmpty();
 	}
 
+	private void cleanseEndedJobs() {
+		/*
+		 * Cleanse the list of completed jobs.
+		 * This is mostly a fail-safe
+		 * because "cancelled" jobs are never removed.
+		 */
+		List<String> idsToDelete = new ArrayList<>();
+		for (String jobId : BATCH_JOBS_TO_CARE_ABOUT) {
+			List<JobInstance> jobInstanceInEndedState = myJobCoordinator.getInstancesbyJobDefinitionIdAndEndedStatus(
+					jobId,
+					true, // ended = true (COMPLETED, FAILED, CANCELLED jobs only)
+					Math.max(myJobExecutions.size(), 1), // at most this many
+					0);
+			for (JobInstance instance : jobInstanceInEndedState) {
+				idsToDelete.add(instance.getInstanceId());
+			}
+		}
+
+		for (String id : idsToDelete) {
+			myJobExecutions.remove(id);
+		}
+	}
 
 	private void saveConceptLink(TermConceptParentChildLink next) {
 		if (next.getId() == null) {
@@ -449,25 +500,14 @@ public class TermDeferredStorageSvcImpl implements ITermDeferredStorageSvc {
 		return !myDeferredConceptMaps.isEmpty();
 	}
 
-	@PostConstruct
-	public void scheduleJob() {
-		// TODO KHS what does this mean?
-		// Register scheduled job to save deferred concepts
-		// In the future it would be great to make this a cluster-aware task somehow
-		ScheduledJobDefinition jobDefinition = new ScheduledJobDefinition();
-		jobDefinition.setId(Job.class.getName());
-		jobDefinition.setJobClass(Job.class);
-		mySchedulerService.scheduleLocalJob(5000, jobDefinition);
-	}
-
 	@VisibleForTesting
 	void setTransactionManagerForUnitTest(PlatformTransactionManager theTxManager) {
 		myTransactionMgr = theTxManager;
 	}
 
 	@VisibleForTesting
-	void setCodeSystemStorageSvcForUnitTest(ITermCodeSystemStorageSvc theCodeSystemStorageSvc) {
-		myCodeSystemStorageSvc = theCodeSystemStorageSvc;
+	void setTermConceptDaoSvc(TermConceptDaoSvc theTermConceptDaoSvc) {
+		myTermConceptDaoSvc = theTermConceptDaoSvc;
 	}
 
 	@VisibleForTesting
@@ -478,6 +518,11 @@ public class TermDeferredStorageSvcImpl implements ITermDeferredStorageSvc {
 	@VisibleForTesting
 	void setCodeSystemVersionDaoForUnitTest(ITermCodeSystemVersionDao theCodeSystemVersionDao) {
 		myCodeSystemVersionDao = theCodeSystemVersionDao;
+	}
+
+	@Override
+	public void disallowDeferredTaskTimeout() {
+		myAllowDeferredTasksTimeout = false;
 	}
 
 	@Override
@@ -496,6 +541,17 @@ public class TermDeferredStorageSvcImpl implements ITermDeferredStorageSvc {
 		myDeferredCodeSystemVersionsDeletions.add(theCodeSystemVersion);
 	}
 
+	@Override
+	public void scheduleJobs(ISchedulerService theSchedulerService) {
+		// TODO KHS what does this mean?
+		// Register scheduled job to save deferred concepts
+		// In the future it would be great to make this a cluster-aware task somehow
+		ScheduledJobDefinition jobDefinition = new ScheduledJobDefinition();
+		jobDefinition.setId(Job.class.getName());
+		jobDefinition.setJobClass(Job.class);
+		theSchedulerService.scheduleLocalJob(5000, jobDefinition);
+	}
+
 	public static class Job implements HapiJob {
 		@Autowired
 		private ITermDeferredStorageSvc myTerminologySvc;
@@ -506,5 +562,17 @@ public class TermDeferredStorageSvcImpl implements ITermDeferredStorageSvc {
 		}
 	}
 
-
+	@Override
+	public String toString() {
+		return new ToStringBuilder(this)
+				.append("myDeferredCodeSystemsDeletions", myDeferredCodeSystemsDeletions.size())
+				.append("myDeferredCodeSystemVersionsDeletions", myDeferredCodeSystemVersionsDeletions.size())
+				.append("myDeferredConcepts", myDeferredConcepts.size())
+				.append("myDeferredValueSets", myDeferredValueSets.size())
+				.append("myDeferredConceptMaps", myDeferredConceptMaps.size())
+				.append("myConceptLinksToSaveLater", myConceptLinksToSaveLater.size())
+				.append("myJobExecutions", myJobExecutions.size())
+				.append("myProcessDeferred", myProcessDeferred)
+				.toString();
+	}
 }

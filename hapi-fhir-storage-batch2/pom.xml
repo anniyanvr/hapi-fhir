@@ -3,10 +3,12 @@
 			xmlns="http://maven.apache.org/POM/4.0.0"
 			xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
+
 	<parent>
 		<groupId>ca.uhn.hapi.fhir</groupId>
 		<artifactId>hapi-deployable-pom</artifactId>
-		<version>6.0.0-PRE4-SNAPSHOT</version>
+		<version>7.7.17-SNAPSHOT</version>
+
 		<relativePath>../hapi-deployable-pom/pom.xml</relativePath>
 	</parent>
 
@@ -14,9 +16,21 @@
 	<packaging>jar</packaging>
 
 	<name>HAPI FHIR JPA Server - Batch2 Task Processor</name>
-	<description></description>
+	<description>Batch2 is a framework for managing and executing long running "batch" jobs</description>
 
 	<dependencies>
+
+		<!-- Put the logging deps at the start because there are duplicates of the SLF4j stuff
+		inside jetty-runner.jar and we want the real ones to take precedence -->
+		<dependency>
+			<groupId>org.slf4j</groupId>
+			<artifactId>slf4j-api</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>ch.qos.logback</groupId>
+			<artifactId>logback-classic</artifactId>
+			<scope>test</scope>
+		</dependency>
 
 		<dependency>
 			<groupId>ca.uhn.hapi.fhir</groupId>
@@ -48,9 +62,16 @@
 			<groupId>org.hibernate.validator</groupId>
 			<artifactId>hibernate-validator</artifactId>
 		</dependency>
+
 		<dependency>
 			<groupId>org.glassfish</groupId>
-			<artifactId>javax.el</artifactId>
+			<artifactId>jakarta.el</artifactId>
+		</dependency>
+
+		<!-- OpenTelemetry -->
+		<dependency>
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-api</artifactId>
 		</dependency>
 
 		<!-- test -->
@@ -71,9 +92,14 @@
 			<scope>test</scope>
 		</dependency>
 		<dependency>
-			<groupId>ch.qos.logback</groupId>
-			<artifactId>logback-classic</artifactId>
-			<scope>test</scope>
+			<groupId>org.springframework.data</groupId>
+			<artifactId>spring-data-commons</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>ca.uhn.hapi.fhir</groupId>
+			<artifactId>hapi-fhir-structures-dstu2</artifactId>
+			<version>${project.version}</version>
+			<scope>compile</scope>
 		</dependency>
 	</dependencies>
 
@@ -89,19 +115,5 @@
 				</plugin>
 			</plugins>
 		</pluginManagement>
-		<plugins>
-			<plugin>
-				<groupId>org.jacoco</groupId>
-				<artifactId>jacoco-maven-plugin</artifactId>
-				<executions>
-					<execution>
-						<id>default-prepare-agent</id>
-						<goals>
-							<goal>prepare-agent</goal>
-						</goals>
-					</execution>
-				</executions>
-			</plugin>
-		</plugins>
 	</build>
 </project>

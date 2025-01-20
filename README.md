@@ -10,8 +10,10 @@ HAPI FHIR - Java API for HL7 FHIR Clients and Servers
 | :---: | :---: | :---: |
 | [![Build Status][Badge-AzurePipelineMaster]][Link-AzurePipelinesMaster] | [![Build Status][Badge-AzureReleaseSnapshot]][Link-AzurePipelinesSnapshot] | [![Release Artifacts][Badge-MavenCentral]][Link-MavenCentral] |
 
-## Test Coverage
+## Coverage and Quality
+
 [![codecov][Badge-CodeCov]][Link-CodeCov]
+[![Language grade: Java](https://img.shields.io/lgtm/grade/java/g/hapifhir/hapi-fhir.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/hapifhir/hapi-fhir/context:java)
 
 ## Documentation and wiki
 
@@ -23,7 +25,7 @@ http://hapi.fhir.org/
 
 This project is Open Source, licensed under the Apache Software License 2.0.
 
-Please see [this wiki page][Link-wiki] for information on where to get help with HAPI FHIR. 
+Please see [this wiki page][Link-wiki] for information on where to get help with HAPI FHIR.
 
 Please see [Smile CDR][Link-SmileCDR] for information on commercial support.
 
@@ -41,5 +43,3 @@ Please see [Smile CDR][Link-SmileCDR] for information on commercial support.
 [Badge-MavenCentral]: https://maven-badges.herokuapp.com/maven-central/ca.uhn.hapi.fhir/hapi-fhir-base/badge.svg
 [Badge-CodeCov]: https://codecov.io/gh/hapifhir/hapi-fhir/branch/master/graph/badge.svg?token=zHfnKfQB9X
 [Badge-License]: https://img.shields.io/badge/license-apache%202.0-60C060.svg
-
-

@@ -1,10 +1,8 @@
-package ca.uhn.fhir.jpa.mdm.config;
-
 /*-
  * #%L
  * HAPI FHIR JPA Server - Master Data Management
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,13 +17,18 @@ package ca.uhn.fhir.jpa.mdm.config;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.jpa.mdm.config;
 
 import ca.uhn.fhir.context.FhirContext;
-import ca.uhn.fhir.jpa.batch.mdm.MdmBatchJobSubmitterFactoryImpl;
-import ca.uhn.fhir.jpa.dao.mdm.MdmLinkDeleteSvc;
-import ca.uhn.fhir.jpa.interceptor.MdmSearchExpandingInterceptor;
-import ca.uhn.fhir.mdm.api.IMdmBatchJobSubmitterFactory;
+import ca.uhn.fhir.jpa.nickname.INicknameSvc;
+import ca.uhn.fhir.mdm.api.IMdmSettings;
+import ca.uhn.fhir.mdm.interceptor.MdmReadVirtualizationInterceptor;
+import ca.uhn.fhir.mdm.interceptor.MdmSearchExpandingInterceptor;
 import ca.uhn.fhir.mdm.rules.config.MdmRuleValidator;
+import ca.uhn.fhir.mdm.rules.matcher.IMatcherFactory;
+import ca.uhn.fhir.mdm.rules.matcher.MdmMatcherFactory;
+import ca.uhn.fhir.mdm.rules.svc.MdmResourceMatcherSvc;
+import ca.uhn.fhir.mdm.svc.MdmLinkDeleteSvc;
 import ca.uhn.fhir.rest.server.util.ISearchParamRegistry;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -37,6 +40,7 @@ public class MdmCommonConfig {
 	MdmRuleValidator mdmRuleValidator(FhirContext theFhirContext, ISearchParamRegistry theSearchParamRetriever) {
 		return new MdmRuleValidator(theFhirContext, theSearchParamRetriever);
 	}
+
 	@Bean
 	@Lazy
 	public MdmSearchExpandingInterceptor mdmSearchExpandingInterceptor() {
@@ -44,8 +48,9 @@ public class MdmCommonConfig {
 	}
 
 	@Bean
-	IMdmBatchJobSubmitterFactory mdmBatchJobSubmitterFactory() {
-		return new MdmBatchJobSubmitterFactoryImpl();
+	@Lazy
+	public MdmReadVirtualizationInterceptor<?> mdmReadVirtualizationInterceptor() {
+		return new MdmReadVirtualizationInterceptor<>();
 	}
 
 	@Bean
@@ -53,4 +58,17 @@ public class MdmCommonConfig {
 		return new MdmLinkDeleteSvc();
 	}
 
+	@Bean
+	@Lazy
+	MdmResourceMatcherSvc mdmResourceComparatorSvc(
+			FhirContext theFhirContext, IMatcherFactory theIMatcherFactory, IMdmSettings theMdmSettings) {
+		return new MdmResourceMatcherSvc(theFhirContext, theIMatcherFactory, theMdmSettings);
+	}
+
+	@Bean
+	@Lazy
+	public IMatcherFactory matcherFactory(
+			FhirContext theFhirContext, IMdmSettings theSettings, INicknameSvc theNicknameSvc) {
+		return new MdmMatcherFactory(theFhirContext, theSettings, theNicknameSvc);
+	}
 }

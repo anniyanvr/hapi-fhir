@@ -3,24 +3,31 @@ package ca.uhn.fhir.parser.jsonlike;
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.parser.DataFormatException;
 import ca.uhn.fhir.parser.IJsonLikeParser;
-import ca.uhn.fhir.parser.json.JsonLikeArray;
-import ca.uhn.fhir.parser.json.JsonLikeObject;
+import ca.uhn.fhir.parser.json.BaseJsonLikeArray;
+import ca.uhn.fhir.parser.json.BaseJsonLikeObject;
+import ca.uhn.fhir.parser.json.BaseJsonLikeValue;
+import ca.uhn.fhir.parser.json.BaseJsonLikeWriter;
 import ca.uhn.fhir.parser.json.JsonLikeStructure;
-import ca.uhn.fhir.parser.json.JsonLikeValue;
-import ca.uhn.fhir.parser.json.JsonLikeWriter;
 import ca.uhn.fhir.parser.json.jackson.JacksonStructure;
 import ca.uhn.fhir.parser.view.ExtPatient;
+import ca.uhn.fhir.util.AttachmentUtil;
+import ca.uhn.fhir.util.ClasspathUtil;
+import ca.uhn.fhir.util.ParametersUtil;
 import ca.uhn.fhir.util.TestUtil;
 import org.apache.commons.io.IOUtils;
+import org.hl7.fhir.instance.model.api.IBaseParameters;
 import org.hl7.fhir.instance.model.api.IBaseResource;
+import org.hl7.fhir.instance.model.api.ICompositeType;
 import org.hl7.fhir.r4.model.Extension;
 import org.hl7.fhir.r4.model.IntegerType;
+import org.hl7.fhir.r4.model.Observation;
 import org.hl7.fhir.r4.model.Patient;
 import org.hl7.fhir.r4.model.Reference;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.Reader;
 import java.io.StringReader;
 import java.io.Writer;
@@ -34,9 +41,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Stack;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class JsonLikeParserTest {
 	private static FhirContext ourCtx = FhirContext.forR4();
@@ -60,7 +67,44 @@ public class JsonLikeParserTest {
 		IJsonLikeParser jsonLikeparser = (IJsonLikeParser)ourCtx.newJsonParser();
 		
 		IBaseResource resource = jsonLikeparser.parseResource(jsonLikeStructure);
-		assertEquals(parsed.getClass().getName(), resource.getClass().getName(), "reparsed resource classes not equal");
+		assertThat(resource.getClass().getName()).as("reparsed resource classes not equal").isEqualTo(parsed.getClass().getName());
+	}
+
+	@Test
+	public void testJacksonStructureCanLoadLoincTerminogy() throws IOException {
+		// given
+		IBaseParameters inputParametersForLoinc = getUploadTerminologyCommandInputParametersForLoinc();
+		String s = ourCtx.newJsonParser().encodeResourceToString(inputParametersForLoinc);
+		StringReader stringReader = new StringReader(s);
+
+		// when
+		JsonLikeStructure jsonLikeStructure = new JacksonStructure();
+		jsonLikeStructure.load(stringReader);
+
+		// then
+		assertNotNull(jsonLikeStructure.getRootObject());
+
+	}
+
+	/**
+	 * Test that json number values with a leading plus sign are parsed without exception.
+	 * Previously, it was possible to save resources with leading plus sign numbers, e.g., "value": +3.0.
+	 * To ensure that we could read such resources back, the ObjectMapper configuration was updated by enabling:
+	 * {@link com.fasterxml.jackson.core.json.JsonReadFeature#ALLOW_LEADING_PLUS_SIGN_FOR_NUMBERS}
+	 * Reproduces: https://github.com/hapifhir/hapi-fhir/issues/5667
+	 */
+	@Test
+	public void testJsonLikeParser_resourceHasDecimalElementWithLeadingPlus_isParsedCorrectly() {
+		// setup
+		String text = ClasspathUtil.loadResource("observation-decimal-element-with-leading-plus.json");
+		IJsonLikeParser jsonLikeParser = (IJsonLikeParser) ourCtx.newJsonParser();
+
+		// execute
+		IBaseResource resource = jsonLikeParser.parseResource(text);
+
+		// validate
+		Observation observation = (Observation) resource;
+		assertEquals("3.0", observation.getReferenceRange().get(0).getHigh().getValueElement().getValueAsString());
 	}
 
 	/**
@@ -80,22 +124,22 @@ public class JsonLikeParserTest {
 		jsonLikeParser.encodeResourceToJsonLikeWriter(fhirPat, jsonLikeWriter);
 		Map<String,Object> jsonLikeMap = jsonLikeWriter.getResultMap();
 		
-		System.out.println("encoded map: " + jsonLikeMap.toString());
+		ourLog.info("encoded map: {}", jsonLikeMap.toString());
 
-		assertNotNull(jsonLikeMap.get("resourceType"), "Encoded resource missing 'resourceType' element");
-		assertEquals(jsonLikeMap.get("resourceType"), "Patient", "Expecting 'resourceType'='Patient'; found '"+jsonLikeMap.get("resourceType")+"'");
+		assertThat(jsonLikeMap.get("resourceType")).as("Encoded resource missing 'resourceType' element").isNotNull();
+		assertThat("Patient").as("Expecting 'resourceType'='Patient'; found '" + jsonLikeMap.get("resourceType") + "'").isEqualTo(jsonLikeMap.get("resourceType"));
 
-		assertNotNull(jsonLikeMap.get("extension"), "Encoded resource missing 'extension' element");
-		assertTrue((jsonLikeMap.get("extension") instanceof List), "'extension' element is not a List");
+		assertThat(jsonLikeMap.get("extension")).as("Encoded resource missing 'extension' element").isNotNull();
+		assertThat((jsonLikeMap.get("extension") instanceof List)).as("'extension' element is not a List").isTrue();
 		
 		List<Object> extensions = (List<Object>)jsonLikeMap.get("extension");
-		assertEquals( 1, extensions.size(), "'extnesion' array has more than one entry");
-		assertTrue((extensions.get(0) instanceof Map), "'extension' array entry is not a Map");
+		assertThat(extensions.size()).as("'extnesion' array has more than one entry").isEqualTo(1);
+		assertThat((extensions.get(0) instanceof Map)).as("'extension' array entry is not a Map").isTrue();
 		
 		Map<String, Object> extension = (Map<String,Object>)extensions.get(0);
-		assertNotNull(extension.get("url"), "'extension' entry missing 'url' member");
-		assertTrue((extension.get("url") instanceof String), "'extension' entry 'url' member is not a String");
-		assertEquals("x1", extension.get("url"), "Expecting '/extension[]/url' = 'x1'; found '"+extension.get("url")+"'");
+		assertThat(extension.get("url")).as("'extension' entry missing 'url' member").isNotNull();
+		assertThat((extension.get("url") instanceof String)).as("'extension' entry 'url' member is not a String").isTrue();
+		assertThat(extension.get("url")).as("Expecting '/extension[]/url' = 'x1'; found '" + extension.get("url") + "'").isEqualTo("x1");
 	
 	}
 
@@ -130,13 +174,13 @@ public class JsonLikeParserTest {
 		assertEquals("id2", nonExt.getIdentifier().get(1).getValue());
 
 		List<Extension> ext = nonExt.getExtensionsByUrl("urn:ext");
-		assertEquals(1, ext.size());
+		assertThat(ext).hasSize(1);
 		assertEquals("urn:ext", ext.get(0).getUrl());
 		assertEquals(IntegerType.class, ext.get(0).getValueAsPrimitive().getClass());
 		assertEquals("100", ext.get(0).getValueAsPrimitive().getValueAsString());
 
 		List<Extension> modExt = nonExt.getExtensionsByUrl("urn:modExt");
-		assertEquals(1, modExt.size());
+		assertThat(modExt).hasSize(1);
 		assertEquals("urn:modExt", modExt.get(0).getUrl());
 		assertEquals(IntegerType.class, modExt.get(0).getValueAsPrimitive().getClass());
 		assertEquals("200", modExt.get(0).getValueAsPrimitive().getValueAsString());
@@ -149,17 +193,37 @@ public class JsonLikeParserTest {
 		assertEquals(100, va.getExt().getValue().intValue());
 		assertEquals(200, va.getModExt().getValue().intValue());
 
-		assertEquals(0, va.getExtension().size());
+		assertThat(va.getExtension()).isEmpty();
 	}
-	
+
+	private IBaseParameters getUploadTerminologyCommandInputParametersForLoinc() throws IOException {
+		IBaseParameters inputParameters = ParametersUtil.newInstance(ourCtx);
+		ParametersUtil.addParameterToParametersUri(
+			ourCtx, inputParameters, "system", "http://loinc.org");
+
+		try(InputStream inputStream = JsonLikeParserTest.class.getResourceAsStream("/Loinc_2.72.zip")) {
+
+			ICompositeType attachment = AttachmentUtil.newInstance(ourCtx);
+			AttachmentUtil.setContentType(ourCtx, attachment, "application/zip");
+			AttachmentUtil.setUrl(ourCtx, attachment, "Loinc_2.72.zip");
+
+			AttachmentUtil.setData(ourCtx, attachment, IOUtils.toByteArray(inputStream));
+
+			ParametersUtil.addParameterToParameters(
+				ourCtx, inputParameters, "file", attachment);
+
+		}
+
+		return inputParameters;
+
+	}
+
 	@AfterAll
 	public static void afterClassClearContext() {
 		TestUtil.randomizeLocaleAndTimezone();
 	}
-	
-	
-	
-	public static class JsonLikeMapWriter extends JsonLikeWriter {
+
+	public static class JsonLikeMapWriter extends BaseJsonLikeWriter {
 
 		private Map<String,Object> target;
 		
@@ -211,7 +275,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter init() {
+		public BaseJsonLikeWriter init() {
 			if (target != null) {
 				target.clear();
 			}
@@ -221,7 +285,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter flush() throws IOException {
+		public BaseJsonLikeWriter flush() throws IOException {
 			if (currentBlock.getType() != BlockType.NONE) {
 				throw new IOException("JsonLikeStreamWriter.flush() called but JSON document is not finished");
 			}
@@ -234,7 +298,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter beginObject() throws IOException {
+		public BaseJsonLikeWriter beginObject() throws IOException {
 			if (currentBlock.getType() == BlockType.OBJECT) {
 				throw new IOException("Unnamed JSON elements can only be created in JSON arrays");
 			}
@@ -258,7 +322,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter beginObject(String name) throws IOException {
+		public BaseJsonLikeWriter beginObject(String name) throws IOException {
 			if (currentBlock.getType() == BlockType.ARRAY) {
 				throw new IOException("Named JSON elements can only be created in JSON objects");
 			}
@@ -272,7 +336,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter beginArray(String name) throws IOException {
+		public BaseJsonLikeWriter beginArray(String name) throws IOException {
 			if (currentBlock.getType() == BlockType.ARRAY) {
 				throw new IOException("Named JSON elements can only be created in JSON objects");
 			}
@@ -284,7 +348,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter write(String value) throws IOException {
+		public BaseJsonLikeWriter write(String value) throws IOException {
 			if (currentBlock.getType() == BlockType.OBJECT) {
 				throw new IOException("Unnamed JSON elements can only be created in JSON arrays");
 			}
@@ -293,7 +357,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter write(BigInteger value) throws IOException {
+		public BaseJsonLikeWriter write(BigInteger value) throws IOException {
 			if (currentBlock.getType() == BlockType.OBJECT) {
 				throw new IOException("Unnamed JSON elements can only be created in JSON arrays");
 			}
@@ -302,7 +366,7 @@ public class JsonLikeParserTest {
 		}
 		
 		@Override
-		public JsonLikeWriter write(BigDecimal value) throws IOException {
+		public BaseJsonLikeWriter write(BigDecimal value) throws IOException {
 			if (currentBlock.getType() == BlockType.OBJECT) {
 				throw new IOException("Unnamed JSON elements can only be created in JSON arrays");
 			}
@@ -311,7 +375,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter write(long value) throws IOException {
+		public BaseJsonLikeWriter write(long value) throws IOException {
 			if (currentBlock.getType() == BlockType.OBJECT) {
 				throw new IOException("Unnamed JSON elements can only be created in JSON arrays");
 			}
@@ -320,7 +384,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter write(double value) throws IOException {
+		public BaseJsonLikeWriter write(double value) throws IOException {
 			if (currentBlock.getType() == BlockType.OBJECT) {
 				throw new IOException("Unnamed JSON elements can only be created in JSON arrays");
 			}
@@ -329,7 +393,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter write(Boolean value) throws IOException {
+		public BaseJsonLikeWriter write(Boolean value) throws IOException {
 			if (currentBlock.getType() == BlockType.OBJECT) {
 				throw new IOException("Unnamed JSON elements can only be created in JSON arrays");
 			}
@@ -338,7 +402,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter write(boolean value) throws IOException {
+		public BaseJsonLikeWriter write(boolean value) throws IOException {
 			if (currentBlock.getType() == BlockType.OBJECT) {
 				throw new IOException("Unnamed JSON elements can only be created in JSON arrays");
 			}
@@ -347,7 +411,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter writeNull() throws IOException {
+		public BaseJsonLikeWriter writeNull() throws IOException {
 			if (currentBlock.getType() == BlockType.OBJECT) {
 				throw new IOException("Unnamed JSON elements can only be created in JSON arrays");
 			}
@@ -356,7 +420,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter write(String name, String value) throws IOException {
+		public BaseJsonLikeWriter write(String name, String value) throws IOException {
 			if (currentBlock.getType() == BlockType.ARRAY) {
 				throw new IOException("Named JSON elements can only be created in JSON objects");
 			}
@@ -365,7 +429,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter write(String name, BigInteger value) throws IOException {
+		public BaseJsonLikeWriter write(String name, BigInteger value) throws IOException {
 			if (currentBlock.getType() == BlockType.ARRAY) {
 				throw new IOException("Named JSON elements can only be created in JSON objects");
 			}
@@ -373,7 +437,7 @@ public class JsonLikeParserTest {
 			return this;
 		}
 		@Override
-		public JsonLikeWriter write(String name, BigDecimal value) throws IOException {
+		public BaseJsonLikeWriter write(String name, BigDecimal value) throws IOException {
 			if (currentBlock.getType() == BlockType.ARRAY) {
 				throw new IOException("Named JSON elements can only be created in JSON objects");
 			}
@@ -382,7 +446,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter write(String name, long value) throws IOException {
+		public BaseJsonLikeWriter write(String name, long value) throws IOException {
 			if (currentBlock.getType() == BlockType.ARRAY) {
 				throw new IOException("Named JSON elements can only be created in JSON objects");
 			}
@@ -391,7 +455,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter write(String name, double value) throws IOException {
+		public BaseJsonLikeWriter write(String name, double value) throws IOException {
 			if (currentBlock.getType() == BlockType.ARRAY) {
 				throw new IOException("Named JSON elements can only be created in JSON objects");
 			}
@@ -400,7 +464,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter write(String name, Boolean value) throws IOException {
+		public BaseJsonLikeWriter write(String name, Boolean value) throws IOException {
 			if (currentBlock.getType() == BlockType.ARRAY) {
 				throw new IOException("Named JSON elements can only be created in JSON objects");
 			}
@@ -409,7 +473,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter write(String name, boolean value) throws IOException {
+		public BaseJsonLikeWriter write(String name, boolean value) throws IOException {
 			if (currentBlock.getType() == BlockType.ARRAY) {
 				throw new IOException("Named JSON elements can only be created in JSON objects");
 			}
@@ -418,7 +482,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter endObject() throws IOException {
+		public BaseJsonLikeWriter endObject() throws IOException {
 			if (currentBlock.getType() == BlockType.NONE) {
 				ourLog.error("JsonLikeStreamWriter.endObject(); called with no active JSON document");
 			} else {
@@ -431,7 +495,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter endArray() {
+		public BaseJsonLikeWriter endArray() {
 			if (currentBlock.getType() == BlockType.NONE) {
 				ourLog.error("JsonLikeStreamWriter.endArray(); called with no active JSON document");
 			} else {
@@ -444,7 +508,7 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter endBlock() {
+		public BaseJsonLikeWriter endBlock() {
 			if (currentBlock.getType() == BlockType.NONE) {
 				ourLog.error("JsonLikeStreamWriter.endBlock(); called with no active JSON document");
 			} else {
@@ -471,7 +535,7 @@ public class JsonLikeParserTest {
 	public static class JsonLikeMapStructure implements JsonLikeStructure {
 
 		private Map<String,Object> nativeObject;
-		private JsonLikeObject jsonLikeObject = null;
+		private BaseJsonLikeObject jsonLikeObject = null;
 		private JsonLikeMapWriter jsonLikeWriter = null;
 		
 		public JsonLikeMapStructure() {
@@ -493,12 +557,12 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeWriter getJsonLikeWriter (Writer ignored) {
+		public BaseJsonLikeWriter getJsonLikeWriter (Writer ignored) {
 			return getJsonLikeWriter();
 		}
 		
 		@Override
-		public JsonLikeWriter getJsonLikeWriter () {
+		public BaseJsonLikeWriter getJsonLikeWriter () {
 			if (null == jsonLikeWriter) {
 				jsonLikeWriter = new JsonLikeMapWriter();
 			}
@@ -516,16 +580,16 @@ public class JsonLikeParserTest {
 		}
 
 		@Override
-		public JsonLikeObject getRootObject() {
+		public BaseJsonLikeObject getRootObject() {
 			if (null == jsonLikeObject) {
 				jsonLikeObject = new JsonMapObject(nativeObject);
 			}
 			return jsonLikeObject;
 		}
 
-		private class JsonMapObject extends JsonLikeObject {
+		private class JsonMapObject extends BaseJsonLikeObject {
 			private Map<String,Object> nativeObject;
-			private Map<String,JsonLikeValue> jsonLikeMap = new LinkedHashMap<>();
+			private Map<String, BaseJsonLikeValue> jsonLikeMap = new LinkedHashMap<>();
 			
 			public JsonMapObject (Map<String,Object> json) {
 				this.nativeObject = json;
@@ -542,8 +606,8 @@ public class JsonLikeParserTest {
 			}
 
 			@Override
-			public JsonLikeValue get(String key) {
-				JsonLikeValue result = null;
+			public BaseJsonLikeValue get(String key) {
+				BaseJsonLikeValue result = null;
 				if (jsonLikeMap.containsKey(key)) {
 					result = jsonLikeMap.get(key); 
 				} else {
@@ -557,9 +621,9 @@ public class JsonLikeParserTest {
 			}
 		}
 		
-		private class JsonMapArray extends JsonLikeArray {
+		private class JsonMapArray extends BaseJsonLikeArray {
 			private List<Object> nativeArray;
-			private Map<Integer,JsonLikeValue> jsonLikeMap = new LinkedHashMap<>();
+			private Map<Integer, BaseJsonLikeValue> jsonLikeMap = new LinkedHashMap<>();
 			
 			public JsonMapArray (List<Object> json) {
 				this.nativeArray = json;
@@ -576,9 +640,9 @@ public class JsonLikeParserTest {
 			}
 
 			@Override
-			public JsonLikeValue get(int index) {
+			public BaseJsonLikeValue get(int index) {
 				Integer key = index;
-				JsonLikeValue result = null;
+				BaseJsonLikeValue result = null;
 				if (jsonLikeMap.containsKey(key)) {
 					result = jsonLikeMap.get(key); 
 				} else {
@@ -592,10 +656,10 @@ public class JsonLikeParserTest {
 			}
 		}
 		
-		private class JsonMapValue extends JsonLikeValue {
+		private class JsonMapValue extends BaseJsonLikeValue {
 			private Object nativeValue;
-			private JsonLikeObject jsonLikeObject = null;
-			private JsonLikeArray jsonLikeArray = null;
+			private BaseJsonLikeObject jsonLikeObject = null;
+			private BaseJsonLikeArray jsonLikeArray = null;
 			
 			public JsonMapValue (Object json) {
 				this.nativeValue = json;
@@ -636,7 +700,7 @@ public class JsonLikeParserTest {
 
 			@SuppressWarnings("unchecked")
 			@Override
-			public JsonLikeArray getAsArray() {
+			public BaseJsonLikeArray getAsArray() {
 				if (nativeValue != null && isArray()) {
 					if (null == jsonLikeArray) {
 						jsonLikeArray = new JsonMapArray((List<Object>)nativeValue);
@@ -647,7 +711,7 @@ public class JsonLikeParserTest {
 
 			@SuppressWarnings("unchecked")
 			@Override
-			public JsonLikeObject getAsObject() {
+			public BaseJsonLikeObject getAsObject() {
 				if (nativeValue != null && isObject()) {
 					if (null == jsonLikeObject) {
 						jsonLikeObject = new JsonMapObject((Map<String,Object>)nativeValue);

@@ -1,10 +1,8 @@
-package ca.uhn.fhir.jpa.search.builder.predicate;
-
 /*-
  * #%L
  * HAPI FHIR JPA Server
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,11 +17,11 @@ package ca.uhn.fhir.jpa.search.builder.predicate;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.jpa.search.builder.predicate;
 
-import ca.uhn.fhir.i18n.Msg;
 import ca.uhn.fhir.context.FhirContext;
+import ca.uhn.fhir.i18n.Msg;
 import ca.uhn.fhir.interceptor.model.RequestPartitionId;
-import ca.uhn.fhir.jpa.dao.LegacySearchBuilder;
 import ca.uhn.fhir.jpa.dao.predicate.SearchFilterParser;
 import ca.uhn.fhir.jpa.dao.predicate.SearchFuzzUtil;
 import ca.uhn.fhir.jpa.search.builder.sql.SearchQueryBuilder;
@@ -47,6 +45,7 @@ public class NumberPredicateBuilder extends BaseSearchParamPredicateBuilder {
 
 	private static final Logger ourLog = LoggerFactory.getLogger(NumberPredicateBuilder.class);
 	private final DbColumn myColumnValue;
+
 	@Autowired
 	private FhirContext myFhirContext;
 
@@ -59,8 +58,15 @@ public class NumberPredicateBuilder extends BaseSearchParamPredicateBuilder {
 		myColumnValue = getTable().addColumn("SP_VALUE");
 	}
 
-	public Condition createPredicateNumeric(String theResourceName, String theParamName, SearchFilterParser.CompareOperation theOperation, BigDecimal theValue, RequestPartitionId theRequestPartitionId, IQueryParameterType theActualParam) {
-		Condition numericPredicate = createPredicateNumeric(this, theOperation, theValue, myColumnValue, "invalidNumberPrefix", myFhirContext, theActualParam);
+	public Condition createPredicateNumeric(
+			String theResourceName,
+			String theParamName,
+			SearchFilterParser.CompareOperation theOperation,
+			BigDecimal theValue,
+			RequestPartitionId theRequestPartitionId,
+			IQueryParameterType theActualParam) {
+		Condition numericPredicate = createPredicateNumeric(
+				this, theOperation, theValue, myColumnValue, "invalidNumberPrefix", myFhirContext, theActualParam);
 		return combineWithHashIdentityPredicate(theResourceName, theParamName, numericPredicate);
 	}
 
@@ -68,13 +74,21 @@ public class NumberPredicateBuilder extends BaseSearchParamPredicateBuilder {
 		return myColumnValue;
 	}
 
-
-	static Condition createPredicateNumeric(BaseSearchParamPredicateBuilder theIndexTable, SearchFilterParser.CompareOperation theOperation, BigDecimal theValue, DbColumn theColumn, String theInvalidValueKey, FhirContext theFhirContext, IQueryParameterType theActualParam) {
+	static Condition createPredicateNumeric(
+			BaseSearchParamPredicateBuilder theIndexTable,
+			SearchFilterParser.CompareOperation theOperation,
+			BigDecimal theValue,
+			DbColumn theColumn,
+			String theInvalidValueKey,
+			FhirContext theFhirContext,
+			IQueryParameterType theActualParam) {
 		Condition num;
 
-		// Per discussions with Grahame Grieve and James Agnew on 11/13/19, modified logic for EQUAL and NOT_EQUAL operators below so as to
+		// Per discussions with Grahame Grieve and James Agnew on 11/13/19, modified logic for EQUAL and NOT_EQUAL
+		// operators below so as to
 		//   use exact value matching.  The "fuzz amount" matching is still used with the APPROXIMATE operator.
-		SearchFilterParser.CompareOperation operation = defaultIfNull(theOperation, SearchFilterParser.CompareOperation.eq);
+		SearchFilterParser.CompareOperation operation =
+				defaultIfNull(theOperation, SearchFilterParser.CompareOperation.eq);
 		switch (operation) {
 			case gt:
 				num = BinaryCondition.greaterThan(theColumn, theIndexTable.generatePlaceholder(theValue));
@@ -105,7 +119,10 @@ public class NumberPredicateBuilder extends BaseSearchParamPredicateBuilder {
 				break;
 			default:
 				String paramValue = theActualParam.getValueAsQueryToken(theFhirContext);
-				String msg = theIndexTable.getFhirContext().getLocalizer().getMessage(LegacySearchBuilder.class, theInvalidValueKey, operation, paramValue);
+				String msg = theIndexTable
+						.getFhirContext()
+						.getLocalizer()
+						.getMessage(NumberPredicateBuilder.class, theInvalidValueKey, operation, paramValue);
 				throw new InvalidRequestException(Msg.code(1235) + msg);
 		}
 

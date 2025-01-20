@@ -1,142 +1,146 @@
 package ca.uhn.fhir.jpa.dao.index;
 
+import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.interceptor.model.RequestPartitionId;
-import ca.uhn.fhir.jpa.api.config.DaoConfig;
-import ca.uhn.fhir.jpa.api.svc.IIdHelperService;
-import ca.uhn.fhir.jpa.dao.data.IForcedIdDao;
+import ca.uhn.fhir.jpa.api.config.JpaStorageSettings;
+import ca.uhn.fhir.jpa.api.svc.ResolveIdentityMode;
+import ca.uhn.fhir.jpa.dao.data.IResourceTableDao;
 import ca.uhn.fhir.jpa.model.config.PartitionSettings;
+import ca.uhn.fhir.jpa.model.cross.IResourceLookup;
+import ca.uhn.fhir.jpa.model.dao.JpaPid;
 import ca.uhn.fhir.jpa.util.MemoryCacheService;
-import ca.uhn.fhir.rest.api.server.storage.ResourcePersistentId;
+import ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.TypedQuery;
+import jakarta.persistence.criteria.CriteriaQuery;
+
+import java.util.ArrayList;
+import java.util.Collection;
+
+import org.hibernate.sql.results.internal.TupleImpl;
 import org.hl7.fhir.r4.model.Patient;
-import org.junit.jupiter.api.Assertions;
+
+import static org.junit.jupiter.api.Assertions.fail;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Answers;
+
+import static org.mockito.ArgumentMatchers.anyBoolean;
+
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.Mockito;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.mock;
 
 @ExtendWith(MockitoExtension.class)
 public class IdHelperServiceTest {
 
-	@Mock
-	private DaoConfig myDaoConfig;
+    @InjectMocks
+    private final IdHelperService myHelperSvc = new IdHelperService();
+
+    @Mock
+    protected IResourceTableDao myResourceTableDao;
+
+    @Mock
+    private JpaStorageSettings myStorageSettings;
+
+    @Spy
+    private FhirContext myFhirCtx = FhirContext.forR4Cached();
+
+    @Mock
+    private MemoryCacheService myMemoryCacheService;
+
+    @Mock(answer = Answers.RETURNS_DEEP_STUBS)
+    private EntityManager myEntityManager;
+
+    @Mock
+    private PartitionSettings myPartitionSettings;
 
 	@Mock
-	private IForcedIdDao myForcedIdDao;
-
-	@Mock
-	private MemoryCacheService myMemoryCacheService;
-
-	@Mock
-	private PartitionSettings myPartitionSettings;
-
-	@InjectMocks
-	private IdHelperService myHelperService;
+	private TypedQuery myTypedQuery;
 
 	@BeforeEach
-	public void beforeEach() {
-		myHelperService.setDontCheckActiveTransactionForUnitTest(true);
-	}
+    void setUp() {
+        myHelperSvc.setDontCheckActiveTransactionForUnitTest(true);
+
+		// lenient because some tests require this setup, and others do not
+		lenient().doReturn(true).when(myStorageSettings).isDeleteEnabled();
+    }
+
 
 	@Test
-	public void resolveResourcePersistentIds_withValidPids_returnsMap() {
-		RequestPartitionId partitionId = RequestPartitionId.allPartitions();
-		String resourceType = Patient.class.getSimpleName();
-		List<String> patientIdsToResolve = new ArrayList<>();
-		patientIdsToResolve.add("123");
-		patientIdsToResolve.add("456");
+	public void testResolveResourceIdentity_defaultFunctionality(){
+		lenient().doReturn(JpaStorageSettings.ClientIdStrategyEnum.ALPHANUMERIC).when(myStorageSettings).getResourceClientIdStrategy();
 
-		// test
-		Map<String, ResourcePersistentId> idToPid = myHelperService.resolveResourcePersistentIds(partitionId,
-			resourceType,
-			patientIdsToResolve);
+		RequestPartitionId partitionId = RequestPartitionId.fromPartitionIdAndName(1, "partition");
+		String resourceType = "Patient";
+		String resourceForcedId = "AAA";
 
-		Assertions.assertFalse(idToPid.isEmpty());
-		for (String pid : patientIdsToResolve) {
-			Assertions.assertTrue(idToPid.containsKey(pid));
-		}
-	}
-
-	@Test
-	public void resolveResourcePersistentIds_withForcedIdsAndDeleteEnabled_returnsMap() {
-		RequestPartitionId partitionId = RequestPartitionId.allPartitions();
-		String resourceType = Patient.class.getSimpleName();
-		List<String> patientIdsToResolve = new ArrayList<>();
-		patientIdsToResolve.add("RED");
-		patientIdsToResolve.add("BLUE");
-
-		Object[] redView = new Object[] {
+		Object[] tuple = new Object[] {
+			JpaPid.fromId(1L),
 			"Patient",
-			new Long(123l),
-			"RED",
-			new Date()
-		};
-		Object[] blueView = new Object[] {
-			"Patient",
-			new Long(456l),
-			"BLUE",
-			new Date()
+			"AAA",
+			new Date(),
+			null
 		};
 
-		// when
-		Mockito.when(myDaoConfig.isDeleteEnabled())
-			.thenReturn(true);
-		Mockito.when(myForcedIdDao.findAndResolveByForcedIdWithNoType(Mockito.anyString(),
-			Mockito.anyList()))
-			.thenReturn(Collections.singletonList(redView))
-			.thenReturn(Collections.singletonList(blueView));
+		when(myEntityManager.createQuery(any(CriteriaQuery.class))).thenReturn(myTypedQuery);
+		when(myTypedQuery.getResultList()).thenReturn(List.of(
+			new TupleImpl(null, tuple)
+		));
 
-		// test
-		Map<String, ResourcePersistentId> map = myHelperService.resolveResourcePersistentIds(
-			partitionId,
-			resourceType,
-			patientIdsToResolve);
-
-		Assertions.assertFalse(map.isEmpty());
-		for (String id : patientIdsToResolve) {
-			Assertions.assertTrue(map.containsKey(id));
-		}
+		IResourceLookup<JpaPid> result = myHelperSvc.resolveResourceIdentity(partitionId, resourceType, resourceForcedId, ResolveIdentityMode.includeDeleted().noCacheUnlessDeletesDisabled());
+		assertEquals(tuple[0], result.getPersistentId());
+		assertEquals(tuple[1], result.getResourceType());
+		assertEquals(tuple[3], result.getDeleted());
 	}
 
 	@Test
-	public void resolveResourcePersistenIds_withForcedIdAndDeleteDisabled_returnsMap() {
-		RequestPartitionId partitionId = RequestPartitionId.allPartitions();
-		String resourceType = Patient.class.getSimpleName();
-		List<String> patientIdsToResolve = new ArrayList<>();
-		patientIdsToResolve.add("RED");
-		patientIdsToResolve.add("BLUE");
+	public void testResolveResourceIdentity_withPersistentIdOfResourceWithForcedIdAndDefaultClientIdStrategy_returnsNotFound(){
+		RequestPartitionId partitionId = RequestPartitionId.fromPartitionIdAndName(1, "partition");
+		String resourceType = "Patient";
 
-		ResourcePersistentId red = new ResourcePersistentId("Patient", new Long(123l));
-		ResourcePersistentId blue = new ResourcePersistentId("Patient",  new Long(456l));
+		Object[] tuple = new Object[] {
+			JpaPid.fromId(1L),
+			"Patient",
+			"AAA",
+			new Date(),
+			null
+		};
 
-		// we will pretend the lookup value is in the cache
-		Mockito.when(myMemoryCacheService.getThenPutAfterCommit(Mockito.any(MemoryCacheService.CacheEnum.class),
-			Mockito.anyString(),
-			Mockito.any(Function.class)))
-			.thenReturn(red)
-			.thenReturn(blue);
+		when(myEntityManager.createQuery(any(CriteriaQuery.class))).thenReturn(myTypedQuery);
+		when(myTypedQuery.getResultList()).thenReturn(List.of(
+			new TupleImpl(null, tuple)
+		));
 
-		// test
-		Map<String, ResourcePersistentId> map = myHelperService.resolveResourcePersistentIds(
-			partitionId,
-			resourceType,
-			patientIdsToResolve
-		);
-
-		Assertions.assertFalse(map.isEmpty());
-		for (String id : patientIdsToResolve) {
-			Assertions.assertTrue(map.containsKey(id));
+		try {
+			// Search by the PID of the resource that has a client assigned FHIR Id
+			myHelperSvc.resolveResourceIdentity(partitionId, resourceType, "1", ResolveIdentityMode.includeDeleted().cacheOk());
+			fail();
+		} catch(ResourceNotFoundException e) {
+			assertThat(e.getMessage()).isEqualTo("HAPI-2001: Resource Patient/1 is not known");
 		}
-		Assertions.assertEquals(red, map.get("RED"));
-		Assertions.assertEquals(blue, map.get("BLUE"));
 	}
 }

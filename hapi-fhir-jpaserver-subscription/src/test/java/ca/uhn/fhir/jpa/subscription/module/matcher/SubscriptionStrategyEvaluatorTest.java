@@ -7,10 +7,10 @@ import ca.uhn.fhir.rest.server.exceptions.InvalidRequestException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.containsString;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
+
 
 public class SubscriptionStrategyEvaluatorTest extends BaseSubscriptionDstu3Test {
 	@Autowired
@@ -37,10 +37,10 @@ public class SubscriptionStrategyEvaluatorTest extends BaseSubscriptionDstu3Test
 		assertDatabase("Observation?context.type=IHD&code=17861-6");
 
 		try {
-			assertInMemory("Observation?codeee=SNOMED-CT|123&_format=xml");
-			fail();
+			mySubscriptionStrategyEvaluator.determineStrategy("Observation?codeee=SNOMED-CT|123&_format=xml");
+			fail("");
 		} catch (InvalidRequestException e) {
-			assertThat(e.getMessage(), containsString("Resource type Observation does not have a parameter with name: codeee"));
+			assertThat(e.getMessage()).contains("Resource type Observation does not have a parameter with name: codeee");
 		}
 	}
 

@@ -1,15 +1,17 @@
 package ca.uhn.fhir.jpa.mdm.provider;
 
 import ca.uhn.fhir.jpa.mdm.BaseMdmR4Test;
-import ca.uhn.fhir.mdm.api.IMdmClearJobSubmitter;
+import ca.uhn.fhir.jpa.test.Batch2JobHelper;
 import ca.uhn.fhir.mdm.api.IMdmControllerSvc;
 import ca.uhn.fhir.mdm.api.IMdmSubmitSvc;
 import ca.uhn.fhir.mdm.provider.MdmControllerHelper;
 import ca.uhn.fhir.mdm.provider.MdmProviderDstu3Plus;
+import ca.uhn.fhir.mdm.provider.PatientMatchProvider;
 import ca.uhn.fhir.mdm.rules.config.MdmSettings;
+import ca.uhn.fhir.mdm.rules.svc.MdmResourceMatcherSvc;
 import ca.uhn.fhir.mdm.util.MessageHelper;
-import ca.uhn.fhir.test.utilities.BatchJobHelper;
 import com.google.common.base.Charsets;
+import jakarta.annotation.Nonnull;
 import org.apache.commons.io.IOUtils;
 import org.hl7.fhir.instance.model.api.IPrimitiveType;
 import org.hl7.fhir.r4.hapi.rest.server.helper.BatchHelperR4;
@@ -21,25 +23,25 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.core.io.Resource;
 
-import javax.annotation.Nonnull;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
 public abstract class BaseProviderR4Test extends BaseMdmR4Test {
-	MdmProviderDstu3Plus myMdmProvider;
+	protected MdmProviderDstu3Plus myMdmProvider;
+	protected PatientMatchProvider myPatientMatchProvider;
 	@Autowired
-	private IMdmControllerSvc myMdmControllerSvc;
-	@Autowired
-	private IMdmClearJobSubmitter myMdmClearJobSubmitter;
+	protected IMdmControllerSvc myMdmControllerSvc;
 	@Autowired
 	private IMdmSubmitSvc myMdmSubmitSvc;
 	@Autowired
-	private MdmSettings myMdmSettings;
+	protected MdmSettings myMdmSettings;
+	@Autowired
+	protected MdmResourceMatcherSvc myMdmResourceMatcherSvc;
 	@Autowired
 	private MdmControllerHelper myMdmHelper;
 	@Autowired
-	BatchJobHelper myBatchJobHelper;
+	Batch2JobHelper myBatch2JobHelper;
 	@Autowired
 	MessageHelper myMessageHelper;
 
@@ -49,13 +51,22 @@ public abstract class BaseProviderR4Test extends BaseMdmR4Test {
 		DefaultResourceLoader resourceLoader = new DefaultResourceLoader();
 		Resource resource = resourceLoader.getResource(theString);
 		String json = IOUtils.toString(resource.getInputStream(), Charsets.UTF_8);
+		myMdmSettings.setEnabled(true);
 		myMdmSettings.setScriptText(json);
-		myMdmResourceMatcherSvc.init();
+		myMdmResourceMatcherSvc.setMdmRulesJson(myMdmSettings.getMdmRules());
 	}
 
+	@Override
 	@BeforeEach
-	public void before() {
-		myMdmProvider = new MdmProviderDstu3Plus(myFhirContext, myMdmControllerSvc, myMdmHelper, myMdmSubmitSvc, myMdmSettings);
+	public void before() throws Exception {
+		super.before();
+		myMdmProvider = new MdmProviderDstu3Plus(myFhirContext,
+			myMdmControllerSvc,
+			myMdmHelper,
+			myMdmSubmitSvc,
+			myInterceptorBroadcaster,
+			myMdmSettings);
+		myPatientMatchProvider = new PatientMatchProvider(myMdmHelper);
 		defaultScript = myMdmSettings.getScriptText();
 	}
 
@@ -64,17 +75,17 @@ public abstract class BaseProviderR4Test extends BaseMdmR4Test {
 	public void after() throws IOException {
 		super.after();
 		myMdmSettings.setScriptText(defaultScript);
-		myMdmResourceMatcherSvc.init();// This bugger creates new objects from the beans and then ignores them.
+		myMdmResourceMatcherSvc.setMdmRulesJson(myMdmSettings.getMdmRules());
 	}
 
 	protected void clearMdmLinks() {
 		Parameters result = (Parameters) myMdmProvider.clearMdmLinks(null, null, myRequestDetails);
-		myBatchJobHelper.awaitJobExecution(BatchHelperR4.jobIdFromParameters(result));
+		myBatch2JobHelper.awaitJobCompletion(BatchHelperR4.jobIdFromBatch2Parameters(result));
 	}
 
 	protected void clearMdmLinks(String theResourceName) {
 		Parameters result = (Parameters) myMdmProvider.clearMdmLinks(getResourceNames(theResourceName), null, myRequestDetails);
-		myBatchJobHelper.awaitJobExecution(BatchHelperR4.jobIdFromParameters(result));
+		myBatch2JobHelper.awaitJobCompletion(BatchHelperR4.jobIdFromBatch2Parameters(result));
 	}
 
 	@Nonnull

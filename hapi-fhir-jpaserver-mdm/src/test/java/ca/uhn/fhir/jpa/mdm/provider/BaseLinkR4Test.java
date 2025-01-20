@@ -1,17 +1,20 @@
 package ca.uhn.fhir.jpa.mdm.provider;
 
-import ca.uhn.fhir.jpa.api.config.DaoConfig;
+import ca.uhn.fhir.jpa.api.config.JpaStorageSettings;
 import ca.uhn.fhir.jpa.entity.MdmLink;
+import ca.uhn.fhir.jpa.model.config.PartitionSettings;
+import ca.uhn.fhir.mdm.api.IMdmLink;
 import ca.uhn.fhir.mdm.api.MdmLinkSourceEnum;
+import ca.uhn.fhir.mdm.api.MdmLinkWithRevision;
 import ca.uhn.fhir.mdm.api.MdmMatchResultEnum;
+import ca.uhn.fhir.mdm.api.params.MdmHistorySearchParameters;
+import jakarta.annotation.Nonnull;
 import org.hl7.fhir.instance.model.api.IAnyResource;
 import org.hl7.fhir.r4.model.Patient;
 import org.hl7.fhir.r4.model.StringType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.springframework.beans.factory.annotation.Autowired;
 
-import javax.annotation.Nonnull;
 import java.io.IOException;
 import java.util.List;
 
@@ -23,9 +26,6 @@ public abstract class BaseLinkR4Test extends BaseProviderR4Test {
 	protected static final StringType POSSIBLE_MATCH_RESULT = new StringType(MdmMatchResultEnum.POSSIBLE_MATCH.name());
 	protected static final StringType POSSIBLE_DUPLICATE_RESULT = new StringType(MdmMatchResultEnum.POSSIBLE_DUPLICATE.name());
 
-	@Autowired
-	DaoConfig myDaoConfig;
-
 	protected Patient myPatient;
 	protected IAnyResource mySourcePatient;
 	protected MdmLink myLink;
@@ -35,7 +35,7 @@ public abstract class BaseLinkR4Test extends BaseProviderR4Test {
 
 	@Override
 	@BeforeEach
-	public void before() {
+	public void before() throws Exception {
 		super.before();
 
 		myPatient = createPatientAndUpdateLinks(buildPaulPatient());
@@ -45,30 +45,39 @@ public abstract class BaseLinkR4Test extends BaseProviderR4Test {
 		mySourcePatientId = new StringType(mySourcePatient.getIdElement().getValue());
 		myVersionlessGodlenResourceId = new StringType(mySourcePatient.getIdElement().toVersionless().getValue());
 
-		myLink = getOnlyPatientLink();
+		myLink = (MdmLink) getOnlyPatientLink();
 		// Tests require our initial link to be a POSSIBLE_MATCH
 		myLink.setMatchResult(MdmMatchResultEnum.POSSIBLE_MATCH);
 		saveLink(myLink);
 		assertEquals(MdmLinkSourceEnum.AUTO, myLink.getLinkSource());
-		myDaoConfig.setExpungeEnabled(true);
-		myDaoConfig.setAllowMultipleDelete(true);
-		myDaoConfig.setDeleteExpungeEnabled(true);
+		myStorageSettings.setExpungeEnabled(true);
+		myStorageSettings.setAllowMultipleDelete(true);
+		myStorageSettings.setDeleteExpungeEnabled(true);
 	}
 
 	@Override
 	@AfterEach
 	public void after() throws IOException {
-		myDaoConfig.setExpungeEnabled(new DaoConfig().isExpungeEnabled());
+		myStorageSettings.setExpungeEnabled(new JpaStorageSettings().isExpungeEnabled());
+		myPartitionSettings.setPartitioningEnabled(new PartitionSettings().isPartitioningEnabled());
 		super.after();
 	}
 
 	@Nonnull
-	protected MdmLink getOnlyPatientLink() {
+	protected IMdmLink getOnlyPatientLink() {
 		return myMdmLinkDaoSvc.findMdmLinkBySource(myPatient).get();
 	}
 
 	@Nonnull
-	protected List<MdmLink> getPatientLinks() {
+	protected List<? extends IMdmLink> getPatientLinks() {
 		return myMdmLinkDaoSvc.findMdmLinksBySourceResource(myPatient);
+	}
+
+	protected List<MdmLinkWithRevision<MdmLink>> getHistoricalLinks(List<String> theGoldenResourceIds, List<String> theResourceIds) {
+		MdmHistorySearchParameters historySearchParameters = new MdmHistorySearchParameters()
+			.setGoldenResourceIds(theGoldenResourceIds)
+			.setSourceIds(theResourceIds);
+
+		return myMdmLinkDaoSvc.findMdmLinkHistory(historySearchParameters);
 	}
 }

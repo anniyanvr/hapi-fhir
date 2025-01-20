@@ -1,26 +1,8 @@
-/**
- * Search for distinct Coding elements by the display text, or by partial codes for a given SearchParameter.
- * <p>
- * Main entrypoint - {@link ca.uhn.fhir.jpa.search.autocomplete.TokenAutocompleteSearch#search}
- *
- * This work depends on on the Hibernate Search infrastructure in {@link ca.uhn.fhir.jpa.dao.search}.
- *
- * NIH sponsored this work to provide an interactive-autocomplete when browsing codes in a research dataset.
- *
- * https://gitlab.com/simpatico.ai/cdr/-/issues/2452
- * wipmb TODO-LIST
- * wipmb - docs - no partition support
- * wipmb - link to docs
- * wipmb what if the sp isn't of type token?  do we check, or discard results without tokens?
- *
- */
-package ca.uhn.fhir.jpa.search.autocomplete;
-
 /*-
  * #%L
  * HAPI FHIR JPA Server
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,3 +17,15 @@ package ca.uhn.fhir.jpa.search.autocomplete;
  * limitations under the License.
  * #L%
  */
+/**
+ * Search for distinct Coding elements by the display text, or by partial codes for a given SearchParameter.
+ * <p>
+ * Main entrypoint - {@link ca.uhn.fhir.jpa.search.autocomplete.TokenAutocompleteSearch#search}
+ *
+ * This work depends on on the Hibernate Search infrastructure in {@link ca.uhn.fhir.jpa.dao.search}.
+ *
+ * Provides an interactive-autocomplete when browsing codes in a dataset.
+ *
+ *
+ */
+package ca.uhn.fhir.jpa.search.autocomplete;

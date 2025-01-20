@@ -1,6 +1,9 @@
 package ca.uhn.fhir.jpa.mdm.provider;
+
 import ca.uhn.fhir.i18n.Msg;
+import ca.uhn.fhir.interceptor.model.RequestPartitionId;
 import ca.uhn.fhir.jpa.entity.MdmLink;
+import ca.uhn.fhir.jpa.entity.PartitionEntity;
 import ca.uhn.fhir.mdm.api.MdmConstants;
 import ca.uhn.fhir.mdm.api.MdmLinkSourceEnum;
 import ca.uhn.fhir.mdm.api.MdmMatchResultEnum;
@@ -13,12 +16,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.endsWith;
-import static org.hamcrest.Matchers.startsWith;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.fail;
+
 
 public class MdmProviderCreateLinkR4Test extends BaseLinkR4Test {
 
@@ -38,9 +40,57 @@ public class MdmProviderCreateLinkR4Test extends BaseLinkR4Test {
 		myMdmProvider.createLink(sourcePatientId, patientId, MATCH_RESULT, myRequestDetails);
 		assertLinkCount(2);
 
-		List<MdmLink> links = myMdmLinkDaoSvc.findMdmLinksBySourceResource(patient);
+		List<MdmLink> links = (List<MdmLink>) myMdmLinkDaoSvc.findMdmLinksBySourceResource(patient);
 		assertEquals(MdmLinkSourceEnum.MANUAL, links.get(0).getLinkSource());
 		assertEquals(MdmMatchResultEnum.MATCH, links.get(0).getMatchResult());
+	}
+
+	@Test
+	public void testCreateLinkWithMatchResultOnSamePartition() {
+		myPartitionSettings.setPartitioningEnabled(true);
+		myPartitionLookupSvc.createPartition(new PartitionEntity().setId(1).setName(PARTITION_1), null);
+		assertLinkCount(1);
+
+		RequestPartitionId requestPartitionId = RequestPartitionId.fromPartitionId(1);
+		Patient patient = createPatientOnPartition(buildPatientWithNameAndId("PatientGiven", "ID.PatientGiven.123"), true, false, requestPartitionId);
+		StringType patientId = new StringType(patient.getIdElement().getValue());
+
+		Patient sourcePatient = createPatientOnPartition(buildPatientWithNameAndId("SourcePatientGiven", "ID.SourcePatientGiven.123"), true, false, requestPartitionId);
+		StringType sourcePatientId = new StringType(sourcePatient.getIdElement().getValue());
+
+		myMdmProvider.createLink(sourcePatientId, patientId, MATCH_RESULT, myRequestDetails);
+		assertLinkCount(2);
+
+		List<MdmLink> links = (List<MdmLink>) myMdmLinkDaoSvc.findMdmLinksBySourceResource(patient);
+		assertEquals(links.size(), 1);
+		assertEquals(MdmLinkSourceEnum.MANUAL, links.get(0).getLinkSource());
+		assertEquals(MdmMatchResultEnum.MATCH, links.get(0).getMatchResult());
+		assertNotNull(links.get(0).getPartitionId());
+		assertEquals(1, links.get(0).getPartitionId().getPartitionId());
+	}
+
+	@Test
+	public void testCreateLinkWithMatchResultOnDifferentPartitions() {
+		myPartitionSettings.setPartitioningEnabled(true);
+		myMdmSettings.setSearchAllPartitionForMatch(false);
+		myPartitionLookupSvc.createPartition(new PartitionEntity().setId(1).setName(PARTITION_1), null);
+		myPartitionLookupSvc.createPartition(new PartitionEntity().setId(2).setName(PARTITION_2), null);
+		assertLinkCount(1);
+
+		RequestPartitionId requestPartitionId1 = RequestPartitionId.fromPartitionId(1);
+		Patient patient = createPatientOnPartition(buildPatientWithNameAndId("PatientGiven", "ID.PatientGiven.123"), false, false, requestPartitionId1);
+		StringType patientId = new StringType(patient.getIdElement().getValue());
+
+		RequestPartitionId requestPartitionId2 = RequestPartitionId.fromPartitionId(2);
+		Patient sourcePatient = createPatientOnPartition(buildPatientWithNameAndId("SourcePatientGiven", "ID.SourcePatientGiven.123"), true, false, requestPartitionId2);
+		StringType sourcePatientId = new StringType(sourcePatient.getIdElement().getValue());
+
+		try {
+			myMdmProvider.createLink(sourcePatientId, patientId, MATCH_RESULT, myRequestDetails);
+			fail();
+		} catch (InvalidRequestException e) {
+			assertThat(e.getMessage()).endsWith("This operation is only available for resources on the same partition.");
+		}
 	}
 
 	@Test
@@ -56,7 +106,7 @@ public class MdmProviderCreateLinkR4Test extends BaseLinkR4Test {
 		myMdmProvider.createLink(sourcePatientId, patientId, null, myRequestDetails);
 		assertLinkCount(2);
 
-		List<MdmLink> links = myMdmLinkDaoSvc.findMdmLinksBySourceResource(patient);
+		List<MdmLink> links = (List<MdmLink>) myMdmLinkDaoSvc.findMdmLinksBySourceResource(patient);
 		assertEquals(MdmLinkSourceEnum.MANUAL, links.get(0).getLinkSource());
 		assertEquals(MdmMatchResultEnum.MATCH, links.get(0).getMatchResult());
 	}
@@ -80,7 +130,7 @@ public class MdmProviderCreateLinkR4Test extends BaseLinkR4Test {
 			myMdmProvider.createLink(sourcePatientId2, patientId, MATCH_RESULT, myRequestDetails);
 			fail();
 		} catch (InvalidRequestException e) {
-			assertThat(e.getMessage(), endsWith("Use $mdm-query-links to see more details."));
+			assertThat(e.getMessage()).endsWith("Use $mdm-query-links to see more details.");
 		}
 	}
 
@@ -102,7 +152,7 @@ public class MdmProviderCreateLinkR4Test extends BaseLinkR4Test {
 		myMdmProvider.createLink(sourcePatientId2, patientId, NO_MATCH_RESULT, myRequestDetails);
 
 		assertLinkCount(3);
-		List<MdmLink> links = myMdmLinkDaoSvc.findMdmLinksBySourceResource(patient);
+		List<MdmLink> links = (List<MdmLink>) myMdmLinkDaoSvc.findMdmLinksBySourceResource(patient);
 		assertEquals(MdmLinkSourceEnum.MANUAL, links.get(1).getLinkSource());
 		assertEquals(MdmMatchResultEnum.NO_MATCH, links.get(1).getMatchResult());
 	}
@@ -114,7 +164,7 @@ public class MdmProviderCreateLinkR4Test extends BaseLinkR4Test {
 			myMdmProvider.createLink(mySourcePatientId, myPatientId, MATCH_RESULT,myRequestDetails);
 			fail();
 		} catch (InvalidRequestException e) {
-			assertThat(e.getMessage(), startsWith(Msg.code(753) + "Link already exists"));
+			assertThat(e.getMessage()).startsWith(Msg.code(753) + "Link already exists");
 		}
 		assertLinkCount(1);
 	}
@@ -135,7 +185,7 @@ public class MdmProviderCreateLinkR4Test extends BaseLinkR4Test {
 			myMdmProvider.createLink(new StringType(""), myPatientId, MATCH_RESULT, myRequestDetails);
 			fail();
 		} catch (InvalidRequestException e) {
-			assertThat(e.getMessage(), endsWith(" must have form <resourceType>/<id> where <id> is the id of the resource"));
+			assertThat(e.getMessage()).endsWith(" must have form <resourceType>/<id> where <id> is the id of the resource");
 		}
 	}
 
@@ -145,7 +195,7 @@ public class MdmProviderCreateLinkR4Test extends BaseLinkR4Test {
 			myMdmProvider.createLink(myVersionlessGodlenResourceId, new StringType(""), MATCH_RESULT, myRequestDetails);
 			fail();
 		} catch (InvalidRequestException e) {
-			assertThat(e.getMessage(), endsWith(" must have form <resourceType>/<id>  where <id> is the id of the resource and <resourceType> is the type of the resource"));
+			assertThat(e.getMessage()).endsWith(" must have form <resourceType>/<id>  where <id> is the id of the resource and <resourceType> is the type of the resource");
 		}
 	}
 

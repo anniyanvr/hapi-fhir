@@ -1,10 +1,8 @@
-package ca.uhn.fhir.batch2.jobs.config;
-
 /*-
  * #%L
- * HAPI FHIR JPA Server
+ * hapi-fhir-storage-batch2-jobs
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,16 +17,26 @@ package ca.uhn.fhir.batch2.jobs.config;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.batch2.jobs.config;
 
-import ca.uhn.fhir.batch2.jobs.imprt.BulkImport2AppCtx;
+import ca.uhn.fhir.batch2.jobs.export.BulkExportAppCtx;
+import ca.uhn.fhir.batch2.jobs.expunge.DeleteExpungeAppCtx;
+import ca.uhn.fhir.batch2.jobs.importpull.BulkImportPullConfig;
+import ca.uhn.fhir.batch2.jobs.imprt.BulkImportAppCtx;
+import ca.uhn.fhir.batch2.jobs.reindex.ReindexAppCtx;
+import ca.uhn.fhir.batch2.jobs.termcodesystem.TermCodeSystemJobConfig;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 
-//When you define a new batch job, add it here.
+// When you define a new batch job, add it here.
 @Configuration
 @Import({
-	BulkImport2AppCtx.class
+	BatchCommonCtx.class,
+	BulkImportAppCtx.class,
+	ReindexAppCtx.class,
+	DeleteExpungeAppCtx.class,
+	BulkExportAppCtx.class,
+	TermCodeSystemJobConfig.class,
+	BulkImportPullConfig.class
 })
-public class Batch2JobsConfig {
-	// nothing
-}
+public class Batch2JobsConfig {}

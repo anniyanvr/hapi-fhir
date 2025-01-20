@@ -1,10 +1,8 @@
-package ca.uhn.fhir.rest.server;
-
 /*
  * #%L
  * HAPI FHIR - Server Framework
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,13 +17,14 @@ package ca.uhn.fhir.rest.server;
  * limitations under the License.
  * #L%
  */
-
-import java.util.ArrayList;
-import java.util.List;
+package ca.uhn.fhir.rest.server;
 
 import ca.uhn.fhir.rest.api.server.RequestDetails;
 import ca.uhn.fhir.rest.server.method.BaseMethodBinding;
 import ca.uhn.fhir.rest.server.method.MethodMatchEnum;
+
+import java.util.LinkedList;
+import java.util.List;
 
 /**
  * Holds all method bindings for an individual resource type
@@ -34,8 +33,8 @@ public class ResourceBinding {
 
 	private static final org.slf4j.Logger ourLog = org.slf4j.LoggerFactory.getLogger(ResourceBinding.class);
 
-	private String resourceName;
-	private List<BaseMethodBinding<?>> myMethodBindings = new ArrayList<>();
+	private String myResourceName;
+	private final LinkedList<BaseMethodBinding> myMethodBindings = new LinkedList<>();
 
 	/**
 	 * Constructor
@@ -44,17 +43,9 @@ public class ResourceBinding {
 		super();
 	}
 
-	/**
-	 * Constructor
-	 */
-	public ResourceBinding(String resourceName, List<BaseMethodBinding<?>> methods) {
-		this.resourceName = resourceName;
-		this.myMethodBindings = methods;
-	}
-
-	public BaseMethodBinding<?> getMethod(RequestDetails theRequest) {
-		if (null == myMethodBindings) {
-			ourLog.warn("No methods exist for resource: {}", resourceName);
+	public BaseMethodBinding getMethod(RequestDetails theRequest) {
+		if (myMethodBindings.isEmpty()) {
+			ourLog.warn("No methods exist for resource: {}", myResourceName);
 			return null;
 		}
 
@@ -64,10 +55,10 @@ public class ResourceBinding {
 		 * Look for the method with the highest match strength
 		 */
 
-		BaseMethodBinding<?> matchedMethod = null;
+		BaseMethodBinding matchedMethod = null;
 		MethodMatchEnum matchedMethodStrength = null;
 
-		for (BaseMethodBinding<?> rm : myMethodBindings) {
+		for (BaseMethodBinding rm : myMethodBindings) {
 			MethodMatchEnum nextMethodMatch = rm.incomingServerRequestMatchesMethod(theRequest);
 			if (nextMethodMatch != MethodMatchEnum.NONE) {
 				if (matchedMethodStrength == null || matchedMethodStrength.ordinal() < nextMethodMatch.ordinal()) {
@@ -84,35 +75,36 @@ public class ResourceBinding {
 	}
 
 	public String getResourceName() {
-		return resourceName;
+		return myResourceName;
 	}
 
 	public void setResourceName(String resourceName) {
-		this.resourceName = resourceName;
+		this.myResourceName = resourceName;
 	}
 
-	public List<BaseMethodBinding<?>> getMethodBindings() {
+	public List<BaseMethodBinding> getMethodBindings() {
 		return myMethodBindings;
 	}
 
-	public void setMethods(List<BaseMethodBinding<?>> methods) {
-		this.myMethodBindings = methods;
-	}
-
-	public void addMethod(BaseMethodBinding<?> method) {
-		this.myMethodBindings.add(method);
+	public void addMethod(BaseMethodBinding method) {
+		if (myMethodBindings.stream()
+				.anyMatch(
+						t -> t.getMethod().toString().equals(method.getMethod().toString()))) {
+			ourLog.warn(
+					"The following method has been registered twice against this RestfulServer: {}",
+					method.getMethod());
+		}
+		this.myMethodBindings.push(method);
 	}
 
 	@Override
 	public boolean equals(Object o) {
-		if (!(o instanceof ResourceBinding))
-			return false;
-		return resourceName.equals(((ResourceBinding) o).getResourceName());
+		if (!(o instanceof ResourceBinding)) return false;
+		return myResourceName.equals(((ResourceBinding) o).getResourceName());
 	}
 
 	@Override
 	public int hashCode() {
 		return 0;
 	}
-
 }

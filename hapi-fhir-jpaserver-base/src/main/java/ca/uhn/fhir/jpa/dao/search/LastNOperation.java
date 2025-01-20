@@ -1,10 +1,8 @@
-package ca.uhn.fhir.jpa.dao.search;
-
 /*-
  * #%L
  * HAPI FHIR JPA Server
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,9 +17,12 @@ package ca.uhn.fhir.jpa.dao.search;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.jpa.dao.search;
 
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.jpa.model.entity.ResourceTable;
+import ca.uhn.fhir.jpa.model.entity.StorageSettings;
+import ca.uhn.fhir.jpa.model.search.ExtendedHSearchBuilderConsumeAdvancedQueryClausesParams;
 import ca.uhn.fhir.jpa.searchparam.SearchParameterMap;
 import ca.uhn.fhir.jpa.searchparam.util.LastNParameterHelper;
 import ca.uhn.fhir.rest.server.util.ISearchParamRegistry;
@@ -38,30 +39,44 @@ public class LastNOperation {
 	public static final String OBSERVATION_RES_TYPE = "Observation";
 	private final SearchSession mySession;
 	private final FhirContext myFhirContext;
+	private final StorageSettings myStorageSettings;
 	private final ISearchParamRegistry mySearchParamRegistry;
-	private final ExtendedLuceneSearchBuilder myExtendedLuceneSearchBuilder = new ExtendedLuceneSearchBuilder();
+	private final ExtendedHSearchSearchBuilder myExtendedHSearchSearchBuilder = new ExtendedHSearchSearchBuilder();
 
-	public LastNOperation(SearchSession theSession, FhirContext theFhirContext, ISearchParamRegistry theSearchParamRegistry) {
+	public LastNOperation(
+			SearchSession theSession,
+			FhirContext theFhirContext,
+			StorageSettings theStorageSettings,
+			ISearchParamRegistry theSearchParamRegistry) {
 		mySession = theSession;
 		myFhirContext = theFhirContext;
+		myStorageSettings = theStorageSettings;
 		mySearchParamRegistry = theSearchParamRegistry;
 	}
 
 	public List<Long> executeLastN(SearchParameterMap theParams, Integer theMaximumResults) {
 		boolean lastNGroupedBySubject = isLastNGroupedBySubject(theParams);
-		LastNAggregation lastNAggregation = new LastNAggregation(getLastNMaxParamValue(theParams), lastNGroupedBySubject);
+		LastNAggregation lastNAggregation =
+				new LastNAggregation(getLastNMaxParamValue(theParams), lastNGroupedBySubject);
 		AggregationKey<JsonObject> observationsByCodeKey = AggregationKey.of("lastN_aggregation");
 
-		SearchResult<ResourceTable> result = mySession.search(ResourceTable.class)
-			.extension(ElasticsearchExtension.get())
-			.where(f -> f.bool(b -> {
-				// Must match observation type
-				b.must(f.match().field("myResourceType").matching(OBSERVATION_RES_TYPE));
-				ExtendedLuceneClauseBuilder builder = new ExtendedLuceneClauseBuilder(myFhirContext, b, f);
-				myExtendedLuceneSearchBuilder.addAndConsumeAdvancedQueryClauses(builder, OBSERVATION_RES_TYPE, theParams.clone(), mySearchParamRegistry);
-			}))
-			.aggregation(observationsByCodeKey, f -> f.fromJson(lastNAggregation.toAggregation()))
-			.fetch(0);
+		SearchResult<ResourceTable> result = mySession
+				.search(ResourceTable.class)
+				.extension(ElasticsearchExtension.get())
+				.where(f -> f.bool(b -> {
+					// Must match observation type
+					b.must(f.match().field("myResourceType").matching(OBSERVATION_RES_TYPE));
+					ExtendedHSearchClauseBuilder builder =
+							new ExtendedHSearchClauseBuilder(myFhirContext, myStorageSettings, b, f);
+					ExtendedHSearchBuilderConsumeAdvancedQueryClausesParams params =
+							new ExtendedHSearchBuilderConsumeAdvancedQueryClausesParams();
+					params.setResourceType(OBSERVATION_RES_TYPE)
+							.setSearchParameterMap(theParams.clone())
+							.setSearchParamRegistry(mySearchParamRegistry);
+					myExtendedHSearchSearchBuilder.addAndConsumeAdvancedQueryClauses(builder, params);
+				}))
+				.aggregation(observationsByCodeKey, f -> f.fromJson(lastNAggregation.toAggregation()))
+				.fetch(0);
 
 		JsonObject resultAggregation = result.aggregation(observationsByCodeKey);
 		List<Long> pidList = lastNAggregation.extractResourceIds(resultAggregation);

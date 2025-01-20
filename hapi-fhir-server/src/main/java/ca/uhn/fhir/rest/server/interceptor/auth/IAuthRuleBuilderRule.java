@@ -1,10 +1,8 @@
-package ca.uhn.fhir.rest.server.interceptor.auth;
-
 /*
  * #%L
  * HAPI FHIR - Server Framework
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +17,7 @@ package ca.uhn.fhir.rest.server.interceptor.auth;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.rest.server.interceptor.auth;
 
 public interface IAuthRuleBuilderRule {
 
@@ -127,4 +126,11 @@ public interface IAuthRuleBuilderRule {
 	 * @since 5.5.0
 	 */
 	IAuthRuleBuilderRuleBulkExport bulkExport();
+
+	/**
+	 * This rule specifically allows a user to perform a FHIR update on the historical version of a resource
+	 *
+	 * @since 6.1.0
+	 */
+	IAuthRuleBuilderUpdateHistoryRewrite updateHistoryRewrite();
 }

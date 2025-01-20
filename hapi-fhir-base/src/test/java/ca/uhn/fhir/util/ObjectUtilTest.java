@@ -1,16 +1,23 @@
 package ca.uhn.fhir.util;
 
-import static org.junit.jupiter.api.Assertions.*;
-
 import ca.uhn.fhir.i18n.Msg;
 import org.junit.jupiter.api.Test;
 
-public class ObjectUtilTest {
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
+
+class ObjectUtilTest {
 
 	@Test
-	public void testEquals() {
-		String a = new String("a");
-		String b = new String("b");
+	void testEquals() {
+		String a = "a";
+		String b = "b";
 		assertFalse(ObjectUtil.equals(b, a));
 		assertFalse(ObjectUtil.equals(a, b));
 		assertFalse(ObjectUtil.equals(a, null));
@@ -20,7 +27,7 @@ public class ObjectUtilTest {
 	}
 	
 	@Test
-	public void testRequireNonNull() {
+	void testRequireNonNull() {
 		String message = "Must not be null in test";
 		try {
 			ObjectUtil.requireNonNull(null, message);
@@ -32,7 +39,7 @@ public class ObjectUtilTest {
 	}
 	
 	@Test
-	public void testRequireNotEmpty() {
+	void testRequireNotEmpty() {
 		//All these are empty, null or whitespace strings.
 		testRequireNotEmptyErrorScenario(null);
 		testRequireNotEmptyErrorScenario("");
@@ -54,5 +61,22 @@ public class ObjectUtilTest {
 			assertEquals(Msg.code(1777) + message, e.getMessage());
 		}
 	}
-	
+
+	@Test
+	void testCast_isInstance_present() {
+		Boolean value = Boolean.FALSE;
+
+		Optional<Boolean> result = ObjectUtil.castIfInstanceof(value, Boolean.class);
+
+		assertThat(result).isPresent();
+	}
+
+	@Test
+	void testCast_isNotInstance_empty() {
+		Boolean value = Boolean.FALSE;
+
+		Optional<Integer> result = ObjectUtil.castIfInstanceof(value, Integer.class);
+
+		assertTrue(result.isEmpty());
+	}
 }

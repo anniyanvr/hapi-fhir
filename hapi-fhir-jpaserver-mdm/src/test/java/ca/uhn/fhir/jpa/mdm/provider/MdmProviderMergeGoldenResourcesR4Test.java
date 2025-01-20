@@ -1,7 +1,12 @@
 package ca.uhn.fhir.jpa.mdm.provider;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import ca.uhn.fhir.i18n.Msg;
+import ca.uhn.fhir.interceptor.model.RequestPartitionId;
 import ca.uhn.fhir.jpa.entity.MdmLink;
+import ca.uhn.fhir.jpa.entity.PartitionEntity;
+import ca.uhn.fhir.jpa.mdm.matcher.GoldenResourceMatchingAssert;
+import ca.uhn.fhir.jpa.model.config.PartitionSettings;
 import ca.uhn.fhir.mdm.api.MdmLinkSourceEnum;
 import ca.uhn.fhir.mdm.api.MdmMatchResultEnum;
 import ca.uhn.fhir.mdm.util.MdmResourceUtil;
@@ -10,15 +15,15 @@ import ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException;
 import ca.uhn.fhir.util.TerserUtil;
 import org.hl7.fhir.r4.model.Patient;
 import org.hl7.fhir.r4.model.StringType;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.util.List;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.hasSize;
-import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -31,7 +36,7 @@ public class MdmProviderMergeGoldenResourcesR4Test extends BaseProviderR4Test {
 
 	@Override
 	@BeforeEach
-	public void before() {
+	public void before() throws Exception {
 		super.before();
 
 		myFromGoldenPatient = createGoldenPatient();
@@ -40,6 +45,12 @@ public class MdmProviderMergeGoldenResourcesR4Test extends BaseProviderR4Test {
 		myToGoldenPatientId = new StringType(myToGoldenPatient.getIdElement().getValue());
 	}
 
+	@Override
+	@AfterEach
+	public void after() throws IOException {
+		myPartitionSettings.setPartitioningEnabled(new PartitionSettings().isPartitioningEnabled());
+		super.after();
+	}
 
 	@Test
 	public void testMergeWithOverride() {
@@ -64,35 +75,93 @@ public class MdmProviderMergeGoldenResourcesR4Test extends BaseProviderR4Test {
 
 	@Test
 	public void testMerge() {
-		Patient mergedSourcePatient = (Patient) myMdmProvider.mergeGoldenResources(myFromGoldenPatientId,
-			myToGoldenPatientId, null, myRequestDetails);
+		Patient mergedSourcePatient = (Patient) myMdmProvider.mergeGoldenResources(
+			myFromGoldenPatientId, // from
+			myToGoldenPatientId, // to
+			null, myRequestDetails);
 
 		// we do not check setActive anymore - as not all types support that
 		assertTrue(MdmResourceUtil.isGoldenRecord(mergedSourcePatient));
-		assertTrue(!MdmResourceUtil.isGoldenRecordRedirected(mergedSourcePatient));
+		assertFalse(MdmResourceUtil.isGoldenRecordRedirected(mergedSourcePatient));
 
 		assertEquals(myToGoldenPatient.getIdElement(), mergedSourcePatient.getIdElement());
-		assertThat(mergedSourcePatient, is(sameGoldenResourceAs(myToGoldenPatient)));
+		GoldenResourceMatchingAssert.assertThat(mergedSourcePatient, myIdHelperService, myMdmLinkDaoSvc).is_MATCH_to(myToGoldenPatient);
 		assertEquals(1, getAllRedirectedGoldenPatients().size());
 		assertEquals(1, getAllGoldenPatients().size());
 
 		Patient fromSourcePatient = myPatientDao.read(myFromGoldenPatient.getIdElement().toUnqualifiedVersionless());
 
-		assertTrue(!MdmResourceUtil.isGoldenRecord(fromSourcePatient));
+		assertFalse(MdmResourceUtil.isGoldenRecord(fromSourcePatient));
 		assertTrue(MdmResourceUtil.isGoldenRecordRedirected(fromSourcePatient));
 
 		//TODO GGG eventually this will need to check a redirect... this is a hack which doesnt work
 		// Optional<Identifier> redirect = fromSourcePatient.getIdentifier().stream().filter(theIdentifier -> theIdentifier.getSystem().equals("REDIRECT")).findFirst();
-		// assertThat(redirect.get().getValue(), is(equalTo(myToSourcePatient.getIdElement().toUnqualified().getValue())));
+		// assertThat(redirect.get().getValue()).isEqualTo(myToSourcePatient.getIdElement().toUnqualified().getValue());
 
-		List<MdmLink> links = myMdmLinkDaoSvc.findMdmLinksBySourceResource(myFromGoldenPatient);
-		assertThat(links, hasSize(1));
+		List<MdmLink> links = (List<MdmLink>) myMdmLinkDaoSvc.findMdmLinksBySourceResource(myToGoldenPatient);
+		assertThat(links).hasSize(1);
 
 		MdmLink link = links.get(0);
-		assertEquals(link.getSourcePid(), myFromGoldenPatient.getIdElement().toUnqualifiedVersionless().getIdPartAsLong());
-		assertEquals(link.getGoldenResourcePid(), myToGoldenPatient.getIdElement().toUnqualifiedVersionless().getIdPartAsLong());
+		assertEquals(link.getSourcePid(), myToGoldenPatient.getIdElement().toUnqualifiedVersionless().getIdPartAsLong());
+		assertEquals(link.getGoldenResourcePid(), myFromGoldenPatient.getIdElement().toUnqualifiedVersionless().getIdPartAsLong());
 		assertEquals(link.getMatchResult(), MdmMatchResultEnum.REDIRECT);
 		assertEquals(link.getLinkSource(), MdmLinkSourceEnum.MANUAL);
+	}
+
+	@Test
+	public void testMergeOnSamePartition() {
+		myPartitionSettings.setPartitioningEnabled(true);
+		myPartitionLookupSvc.createPartition(new PartitionEntity().setId(1).setName(PARTITION_1), null);
+		RequestPartitionId requestPartitionId = RequestPartitionId.fromPartitionId(1);
+		Patient fromGoldenPatient = createPatientOnPartition(new Patient(), true, false, requestPartitionId);
+		StringType fromGoldenPatientId = new StringType(fromGoldenPatient.getIdElement().getValue());
+		Patient toGoldenPatient = createPatientOnPartition(new Patient(), true, false, requestPartitionId);
+		StringType toGoldenPatientId = new StringType(toGoldenPatient.getIdElement().getValue());
+
+		// test
+		Patient mergedSourcePatient = (Patient) myMdmProvider.mergeGoldenResources(
+			fromGoldenPatientId,
+			toGoldenPatientId,
+			null, myRequestDetails);
+
+		assertTrue(MdmResourceUtil.isGoldenRecord(mergedSourcePatient));
+		assertFalse(MdmResourceUtil.isGoldenRecordRedirected(mergedSourcePatient));
+
+		assertEquals(toGoldenPatient.getIdElement(), mergedSourcePatient.getIdElement());
+		mdmAssertThat(mergedSourcePatient).is_MATCH_to(toGoldenPatient);
+		assertEquals(1, getAllRedirectedGoldenPatients().size());
+		// 2 from the set-up and only one from this test should be golden resource
+		assertEquals(3, getAllGoldenPatients().size());
+
+		List<MdmLink> links = (List<MdmLink>) myMdmLinkDaoSvc.findMdmLinksBySourceResource(toGoldenPatient);
+		assertThat(links).hasSize(1);
+
+		MdmLink link = links.get(0);
+		assertEquals(link.getSourcePid(), toGoldenPatient.getIdElement().toUnqualifiedVersionless().getIdPartAsLong());
+		assertEquals(link.getGoldenResourcePid(), fromGoldenPatient.getIdElement().toUnqualifiedVersionless().getIdPartAsLong());
+		assertEquals(link.getMatchResult(), MdmMatchResultEnum.REDIRECT);
+		assertEquals(link.getLinkSource(), MdmLinkSourceEnum.MANUAL);
+	}
+
+	@Test
+	public void testMergeOnDifferentPartitions() {
+		myPartitionSettings.setPartitioningEnabled(true);
+		myMdmSettings.setSearchAllPartitionForMatch(false);
+		myPartitionLookupSvc.createPartition(new PartitionEntity().setId(1).setName(PARTITION_1), null);
+		RequestPartitionId requestPartitionId1 = RequestPartitionId.fromPartitionId(1);
+		myPartitionLookupSvc.createPartition(new PartitionEntity().setId(2).setName(PARTITION_2), null);
+		RequestPartitionId requestPartitionId2 = RequestPartitionId.fromPartitionId(2);
+		Patient fromGoldenPatient = createPatientOnPartition(new Patient(), true, false, requestPartitionId1);
+		StringType fromGoldenPatientId = new StringType(fromGoldenPatient.getIdElement().getValue());
+		Patient toGoldenPatient = createPatientOnPartition(new Patient(), true, false, requestPartitionId2);
+		StringType toGoldenPatientId = new StringType(toGoldenPatient.getIdElement().getValue());
+
+		try {
+			myMdmProvider.mergeGoldenResources(fromGoldenPatientId, toGoldenPatientId, null, myRequestDetails);
+			fail();
+		} catch (InvalidRequestException e) {
+			assertThat(e.getMessage()).endsWith("This operation is only available for resources on the same partition.");
+		}
 	}
 
 	@Test
@@ -100,24 +169,26 @@ public class MdmProviderMergeGoldenResourcesR4Test extends BaseProviderR4Test {
 		Patient patient = TerserUtil.clone(myFhirContext, myFromGoldenPatient);
 		patient.setIdElement(null);
 
-		Patient mergedSourcePatient = (Patient) myMdmProvider.mergeGoldenResources(myFromGoldenPatientId,
-			myToGoldenPatientId, patient, myRequestDetails);
+		Patient mergedSourcePatient = (Patient) myMdmProvider.mergeGoldenResources(
+			myFromGoldenPatientId, // from
+			myToGoldenPatientId, // to
+			patient, myRequestDetails);
 
 		assertEquals(myToGoldenPatient.getIdElement(), mergedSourcePatient.getIdElement());
-		assertThat(mergedSourcePatient, is(sameGoldenResourceAs(myToGoldenPatient)));
+		mdmAssertThat(mergedSourcePatient).is_MATCH_to(myToGoldenPatient);
 		assertEquals(1, getAllRedirectedGoldenPatients().size());
 		assertEquals(1, getAllGoldenPatients().size());
 
 		Patient fromSourcePatient = myPatientDao.read(myFromGoldenPatient.getIdElement().toUnqualifiedVersionless());
-		assertTrue(!MdmResourceUtil.isGoldenRecord(fromSourcePatient));
+		assertFalse(MdmResourceUtil.isGoldenRecord(fromSourcePatient));
 		assertTrue(MdmResourceUtil.isGoldenRecordRedirected(fromSourcePatient));
 
-		List<MdmLink> links = myMdmLinkDaoSvc.findMdmLinksBySourceResource(myFromGoldenPatient);
-		assertThat(links, hasSize(1));
+		List<MdmLink> links = (List<MdmLink>) myMdmLinkDaoSvc.findMdmLinksBySourceResource(myToGoldenPatient);
+		assertThat(links).hasSize(1);
 
 		MdmLink link = links.get(0);
-		assertEquals(link.getSourcePid(), myFromGoldenPatient.getIdElement().toUnqualifiedVersionless().getIdPartAsLong());
-		assertEquals(link.getGoldenResourcePid(), myToGoldenPatient.getIdElement().toUnqualifiedVersionless().getIdPartAsLong());
+		assertEquals(link.getSourcePid(), myToGoldenPatient.getIdElement().toUnqualifiedVersionless().getIdPartAsLong());
+		assertEquals(link.getGoldenResourcePid(), myFromGoldenPatient.getIdElement().toUnqualifiedVersionless().getIdPartAsLong());
 		assertEquals(link.getMatchResult(), MdmMatchResultEnum.REDIRECT);
 		assertEquals(link.getLinkSource(), MdmLinkSourceEnum.MANUAL);
 	}

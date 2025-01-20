@@ -1,10 +1,8 @@
-package ca.uhn.fhir.cli;
-
 /*-
  * #%L
  * HAPI FHIR - Command Line Client - API
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,12 +17,12 @@ package ca.uhn.fhir.cli;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.cli;
 
 import ca.uhn.fhir.i18n.Msg;
+import ca.uhn.fhir.system.HapiSystemProperties;
 import ca.uhn.fhir.util.VersionUtil;
-import ch.qos.logback.classic.LoggerContext;
-import ch.qos.logback.classic.joran.JoranConfigurator;
-import ch.qos.logback.core.joran.spi.JoranException;
+import com.google.common.annotations.VisibleForTesting;
 import com.helger.commons.io.file.FileHelper;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.DefaultParser;
@@ -45,6 +43,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import static org.fusesource.jansi.Ansi.ansi;
@@ -53,19 +52,20 @@ import static org.fusesource.jansi.Ansi.ansi;
 public abstract class BaseApp {
 	protected static final org.slf4j.Logger ourLog;
 	static final String LINESEP = System.getProperty("line.separator");
-	private static final String STACKFILTER_PATTERN = "%xEx{full, sun.reflect, org.junit, org.eclipse, java.lang.reflect.Method, org.springframework, org.hibernate, com.sun.proxy, org.attoparser, org.thymeleaf}";
-	private static final String STACKFILTER_PATTERN_PROP = "log.stackfilter.pattern";
+	private static final String STACKFILTER_PATTERN =
+			"%xEx{full, sun.reflect, org.junit, org.eclipse, java.lang.reflect.Method, org.springframework, org.hibernate, com.sun.proxy, org.attoparser, org.thymeleaf}";
 	private static List<BaseCommand> ourCommands;
 	private static boolean ourDebugMode;
 
 	static {
-		System.setProperty(STACKFILTER_PATTERN_PROP, STACKFILTER_PATTERN);
-		loggingConfigOff();
+		HapiSystemProperties.setStackFilterPattern(STACKFILTER_PATTERN);
+		LogbackUtil.loggingConfigOff();
 
 		// We don't use qualified names for loggers in CLI
 		ourLog = LoggerFactory.getLogger(App.class);
 	}
 
+	private Consumer<BaseApp> myStartupHook = noop -> {};
 	private MyShutdownHook myShutdownHook;
 	private boolean myShutdownHookHasNotRun;
 
@@ -75,8 +75,10 @@ public abstract class BaseApp {
 		printMessageToStdout(msg);
 		logProductName();
 		printMessageToStdout("------------------------------------------------------------");
-		printMessageToStdout("Process ID                      : " + ManagementFactory.getRuntimeMXBean().getName());
-		printMessageToStdout("Max configured JVM memory (Xmx) : " + FileHelper.getFileSizeDisplay(Runtime.getRuntime().maxMemory(), 1));
+		printMessageToStdout("Process ID                      : "
+				+ ManagementFactory.getRuntimeMXBean().getName());
+		printMessageToStdout("Max configured JVM memory (Xmx) : "
+				+ FileHelper.getFileSizeDisplay(Runtime.getRuntime().maxMemory(), 1));
 		printMessageToStdout("Detected Java version           : " + System.getProperty("java.version"));
 		printMessageToStdout("------------------------------------------------------------");
 	}
@@ -91,7 +93,8 @@ public abstract class BaseApp {
 	}
 
 	protected void logProductName() {
-		printMessageToStdout("\ud83d\udd25 " + ansi().bold() + " " + provideProductName() + ansi().boldOff() + " " + provideProductVersion() + " - Command Line Tool");
+		printMessageToStdout("\ud83d\udd25 " + ansi().bold() + " " + provideProductName() + ansi().boldOff() + " "
+				+ provideProductVersion() + " - Command Line Tool");
 	}
 
 	private void logCommandUsage(BaseCommand theCommand) {
@@ -156,16 +159,20 @@ public abstract class BaseApp {
 
 		int longestCommandLength = 0;
 		for (BaseCommand next : ourCommands) {
-			longestCommandLength = Math.max(longestCommandLength, next.getCommandName().length());
+			longestCommandLength =
+					Math.max(longestCommandLength, next.getCommandName().length());
 		}
 
 		for (BaseCommand next : ourCommands) {
 			String left = "  " + StringUtils.rightPad(next.getCommandName(), longestCommandLength);
-			String[] rightParts = WordUtils.wrap(next.getCommandDescription(), 80 - (left.length() + 3)).split("\\n");
+			String[] rightParts = WordUtils.wrap(next.getCommandDescription(), 80 - (left.length() + 3))
+					.split("\\n");
 			for (int i = 1; i < rightParts.length; i++) {
 				rightParts[i] = StringUtils.leftPad("", left.length() + 3) + rightParts[i];
 			}
-			printMessageToStdout(ansi().bold().fg(Ansi.Color.GREEN) + left + ansi().boldOff().fg(Ansi.Color.WHITE) + " - " + ansi().bold() + StringUtils.join(rightParts, LINESEP));
+			printMessageToStdout(
+					ansi().bold().fg(Ansi.Color.GREEN) + left + ansi().boldOff().fg(Ansi.Color.WHITE) + " - "
+							+ ansi().bold() + StringUtils.join(rightParts, LINESEP));
 		}
 		printMessageToStdout("");
 		printMessageToStdout(ansi().boldOff().fg(Ansi.Color.WHITE) + "See what options are available:");
@@ -177,7 +184,6 @@ public abstract class BaseApp {
 
 	protected List<BaseCommand> provideCommands() {
 		ArrayList<BaseCommand> commands = new ArrayList<>();
-		commands.add(new RunServerCommand());
 		commands.add(new ExampleDataUploader());
 		commands.add(new ValidateCommand());
 		commands.add(new ValidationDataUploader());
@@ -186,8 +192,10 @@ public abstract class BaseApp {
 		commands.add(new ExportConceptMapToCsvCommand());
 		commands.add(new ImportCsvToConceptMapCommand());
 		commands.add(new HapiFlywayMigrateDatabaseCommand());
+		commands.add(new HapiClearMigrationLockCommand());
 		commands.add(new CreatePackageCommand());
 		commands.add(new BulkImportCommand());
+		commands.add(new ReindexTerminologyCommand());
 		return commands;
 	}
 
@@ -197,7 +205,7 @@ public abstract class BaseApp {
 
 	@SuppressWarnings("ResultOfMethodCallIgnored")
 	public void run(String[] theArgs) {
-		loggingConfigOff();
+		LogbackUtil.loggingConfigOff();
 		validateJavaVersion();
 
 		if (System.getProperty("unit_test") != null) {
@@ -212,7 +220,6 @@ public abstract class BaseApp {
 		ourCommands.addAll(provideCommands());
 		Collections.sort(ourCommands);
 
-
 		if (theArgs.length == 0) {
 			logUsage();
 			return;
@@ -224,7 +231,7 @@ public abstract class BaseApp {
 		}
 
 		Optional<BaseCommand> commandOpt = parseCommand(theArgs);
-		if (! commandOpt.isPresent())  return;
+		if (commandOpt.isEmpty()) return;
 
 		BaseCommand command = commandOpt.get();
 
@@ -237,33 +244,35 @@ public abstract class BaseApp {
 
 		logAppHeader();
 		validateJavaVersion();
-		loggingConfigOn();
+
+		if (System.console() == null) {
+			// Probably redirecting stdout to a file
+			LogbackUtil.loggingConfigOnWithoutColour();
+		} else {
+			// Use colours if we're logging to a console
+			LogbackUtil.loggingConfigOnWithColour();
+		}
 
 		try {
 			String[] args = Arrays.copyOfRange(theArgs, 1, theArgs.length);
 			parsedOptions = parser.parse(options, args, true);
 			if (!parsedOptions.getArgList().isEmpty()) {
-				throw new ParseException(Msg.code(1555) + "Unrecognized argument: " + parsedOptions.getArgList().get(0));
+				throw new ParseException(Msg.code(1555) + "Unrecognized argument: "
+						+ parsedOptions.getArgList().get(0));
 			}
 
 			if (parsedOptions.hasOption("debug")) {
-				loggingConfigOnDebug();
+				LogbackUtil.loggingConfigOnDebug();
 				ourDebugMode = true;
 			}
 
+			myStartupHook.accept(this);
+
 			// Actually execute the command
 			command.run(parsedOptions);
-
-			myShutdownHookHasNotRun = true;
-			runCleanupHookAndUnregister();
-
-			if (!"true".equals(System.getProperty("test"))) {
-				System.exit(0);
-			}
-
 		} catch (ParseException e) {
-			if (!"true".equals(System.getProperty("test"))) {
-				loggingConfigOff();
+			if (!HapiSystemProperties.isTestModeEnabled()) {
+				LogbackUtil.loggingConfigOff();
 			}
 			System.err.println("Invalid command options for command: " + command.getCommandName());
 			System.err.println("  " + ansi().fg(Ansi.Color.RED).bold() + e.getMessage());
@@ -279,15 +288,22 @@ public abstract class BaseApp {
 			ourLog.error("Error during execution: ", t);
 			runCleanupHookAndUnregister();
 			exitDueToException(new CommandFailureException("Error: " + t, t));
-		}
+		} finally {
+			myShutdownHookHasNotRun = true;
+			runCleanupHookAndUnregister();
 
+			if (!HapiSystemProperties.isTestModeEnabled()) {
+				System.exit(0);
+			}
+		}
 	}
 
 	private Optional<BaseCommand> parseCommand(String[] theArgs) {
 		Optional<BaseCommand> commandOpt = getNextCommand(theArgs, 0);
 
-		if (! commandOpt.isPresent()) {
-			String message = "Unrecognized command: " + ansi().bold().fg(Ansi.Color.RED) + theArgs[0] + ansi().boldOff().fg(Ansi.Color.WHITE);
+		if (commandOpt.isEmpty()) {
+			String message = "Unrecognized command: " + ansi().bold().fg(Ansi.Color.RED) + theArgs[0]
+					+ ansi().boldOff().fg(Ansi.Color.WHITE);
 			printMessageToStdout(message);
 			printMessageToStdout("");
 			logUsage();
@@ -297,7 +313,9 @@ public abstract class BaseApp {
 	}
 
 	private Optional<BaseCommand> getNextCommand(String[] theArgs, int thePosition) {
-		return ourCommands.stream().filter(cmd -> cmd.getCommandName().equals(theArgs[thePosition])).findFirst();
+		return ourCommands.stream()
+				.filter(cmd -> cmd.getCommandName().equals(theArgs[thePosition]))
+				.findFirst();
 	}
 
 	private void processHelp(String[] theArgs) {
@@ -306,7 +324,7 @@ public abstract class BaseApp {
 			return;
 		}
 		Optional<BaseCommand> commandOpt = getNextCommand(theArgs, 1);
-		if (! commandOpt.isPresent()) {
+		if (commandOpt.isEmpty()) {
 			String message = "Unknown command: " + theArgs[1];
 			System.err.println(message);
 			exitDueToProblem(message);
@@ -315,9 +333,8 @@ public abstract class BaseApp {
 		logCommandUsage(commandOpt.get());
 	}
 
-
 	private void exitDueToProblem(String theDescription) {
-		if ("true".equals(System.getProperty("test"))) {
+		if (HapiSystemProperties.isTestModeEnabled()) {
 			throw new Error(Msg.code(1556) + theDescription);
 		} else {
 			System.exit(1);
@@ -325,7 +342,9 @@ public abstract class BaseApp {
 	}
 
 	private void exitDueToException(Throwable e) {
-		if ("true".equals(System.getProperty("test"))) {
+		if (HapiSystemProperties.isTestModeEnabled()) {
+			ourLog.error("In test-mode - block exit with error status.");
+			ourLog.error("FAILURE: {}", e.getMessage());
 			if (e instanceof CommandFailureException) {
 				throw (CommandFailureException) e;
 			}
@@ -338,7 +357,7 @@ public abstract class BaseApp {
 	private void runCleanupHookAndUnregister() {
 		if (myShutdownHookHasNotRun) {
 			Runtime.getRuntime().removeShutdownHook(myShutdownHook);
-			myShutdownHook.run();
+			myShutdownHook.start();
 			myShutdownHookHasNotRun = false;
 		}
 	}
@@ -351,6 +370,11 @@ public abstract class BaseApp {
 			System.err.println(provideProductName() + " requires Java 1.8+ to run (detected " + specVersion + ")");
 			System.exit(1);
 		}
+	}
+
+	@VisibleForTesting
+	public void setStartupHook(Consumer<BaseApp> theStartupHook) {
+		myStartupHook = theStartupHook;
 	}
 
 	private class MyShutdownHook extends Thread {
@@ -369,41 +393,5 @@ public abstract class BaseApp {
 
 	public static boolean isDebugMode() {
 		return ourDebugMode;
-	}
-
-	private static void loggingConfigOff() {
-		try {
-			JoranConfigurator configurator = new JoranConfigurator();
-			configurator.setContext((LoggerContext) LoggerFactory.getILoggerFactory());
-			configurator.doConfigure(App.class.getResourceAsStream("/logback-cli-off.xml"));
-		} catch (JoranException e) {
-			e.printStackTrace();
-		}
-	}
-
-	private static void loggingConfigOn() {
-		try {
-			JoranConfigurator configurator = new JoranConfigurator();
-			configurator.setContext((LoggerContext) LoggerFactory.getILoggerFactory());
-			((LoggerContext) LoggerFactory.getILoggerFactory()).reset();
-			configurator.doConfigure(App.class.getResourceAsStream("/logback-cli-on.xml"));
-			ourLog.info("Logging configuration set from file logback-cli-on.xml");
-		} catch (JoranException e) {
-			e.printStackTrace();
-		}
-	}
-
-	private static void loggingConfigOnDebug() {
-		try {
-			JoranConfigurator configurator = new JoranConfigurator();
-			configurator.setContext((LoggerContext) LoggerFactory.getILoggerFactory());
-			((LoggerContext) LoggerFactory.getILoggerFactory()).reset();
-			configurator.doConfigure(App.class.getResourceAsStream("/logback-cli-on-debug.xml"));
-			ourLog.info("Logging configuration set from file logback-cli-on-debug.xml");
-		} catch (JoranException e) {
-			e.printStackTrace();
-		}
-
-		ourLog.info("Debug logging is enabled");
 	}
 }

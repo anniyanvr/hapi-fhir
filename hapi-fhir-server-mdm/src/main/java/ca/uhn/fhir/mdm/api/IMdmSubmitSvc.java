@@ -1,10 +1,8 @@
-package ca.uhn.fhir.mdm.api;
-
 /*-
  * #%L
  * HAPI FHIR - Master Data Management
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,10 +17,11 @@ package ca.uhn.fhir.mdm.api;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.mdm.api;
 
+import ca.uhn.fhir.rest.api.server.RequestDetails;
+import jakarta.annotation.Nullable;
 import org.hl7.fhir.instance.model.api.IIdType;
-
-import javax.annotation.Nullable;
 
 public interface IMdmSubmitSvc {
 
@@ -37,7 +36,7 @@ public interface IMdmSubmitSvc {
 	 *
 	 * @return
 	 */
-	long submitAllSourceTypesToMdm(@Nullable String theCriteria);
+	long submitAllSourceTypesToMdm(@Nullable String theCriteria, RequestDetails theRequestDetails);
 
 	/**
 	 * Given a type and a search criteria, submit all found resources for MDM processing.
@@ -46,7 +45,8 @@ public interface IMdmSubmitSvc {
 	 * @param theCriteria The FHIR search critieria for filtering the resources to be submitted for MDM processing..
 	 * @return the number of resources submitted for MDM processing.
 	 */
-	long submitSourceResourceTypeToMdm(String theSourceResourceType, String theCriteria);
+	long submitSourceResourceTypeToMdm(
+			String theSourceResourceType, String theCriteria, RequestDetails theRequestDetails);
 
 	/**
 	 * Convenience method that calls {@link #submitSourceResourceTypeToMdm(String, String)} with the type pre-populated.
@@ -54,7 +54,8 @@ public interface IMdmSubmitSvc {
 	 * @param theCriteria The FHIR search critieria for filtering the resources to be submitted for MDM processing.
 	 * @return the number of resources submitted for MDM processing.
 	 */
-	long submitPractitionerTypeToMdm(String theCriteria);
+	@Deprecated(forRemoval = true, since = "6.8.0")
+	long submitPractitionerTypeToMdm(String theCriteria, RequestDetails theRequestDetails);
 
 	/**
 	 * Convenience method that calls {@link #submitSourceResourceTypeToMdm(String, String)} with the type pre-populated.
@@ -62,7 +63,8 @@ public interface IMdmSubmitSvc {
 	 * @param theCriteria The FHIR search critieria for filtering the resources to be submitted for MDM processing.
 	 * @return the number of resources submitted for MDM processing.
 	 */
-	long submitPatientTypeToMdm(String theCriteria);
+	@Deprecated(forRemoval = true, since = "6.8.0")
+	long submitPatientTypeToMdm(String theCriteria, RequestDetails theRequestDetails);
 
 	/**
 	 * Given an ID and a source resource type valid for MDM, manually submit the given ID for MDM processing.
@@ -70,7 +72,7 @@ public interface IMdmSubmitSvc {
 	 * @param theId the ID of the resource to process for MDM.
 	 * @return the constant `1`, as if this function returns successfully, it will have processed one resource for MDM.
 	 */
-	long submitSourceResourceToMdm(IIdType theId);
+	long submitSourceResourceToMdm(IIdType theId, RequestDetails theRequestDetails);
 
 	/**
 	 * This setter exists to allow imported modules to override settings.
@@ -85,5 +87,4 @@ public interface IMdmSubmitSvc {
 	 * @param theBufferSize
 	 */
 	public void setBufferSize(int theBufferSize);
-
 }

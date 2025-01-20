@@ -1,10 +1,8 @@
-package ca.uhn.fhir.batch2.api;
-
 /*-
  * #%L
  * HAPI FHIR JPA Server - Batch2 Task Processor
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,11 +17,18 @@ package ca.uhn.fhir.batch2.api;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.batch2.api;
 
 import ca.uhn.fhir.model.api.IModelJson;
+import jakarta.annotation.Nonnull;
 
 /**
- * @param <PT> The job parameterrs type datatype
+ * This interface is implemented by step workers within the Batch2 framework. It will be called
+ * 0..* times depending on the number of work chunks produced by the previous step. It will
+ * always be called once in the case of the first step. It can produce 0..* work chunks that
+ * will be processed in subsequent steps.
+ *
+ * @param <PT> The job parameters type datatype
  * @param <IT> The step input datatype
  * @param <OT> The step output datatype
  */
@@ -35,27 +40,12 @@ public interface IJobStepWorker<PT extends IModelJson, IT extends IModelJson, OT
 	 * @param theStepExecutionDetails Contains details about the individual execution
 	 * @param theDataSink             A data sink for data produced during this step. This may never
 	 *                                be used during the final step of a job.
+	 * @return Returns a {@link RunOutcome} containing details about the execution. See the javadoc for that class for details about how to populate it.
 	 * @throws JobExecutionFailedException This exception indicates an unrecoverable failure. If a
 	 *                                     step worker throws this exception, processing for the
 	 *                                     job will be aborted.
 	 */
-	RunOutcome run(StepExecutionDetails<PT, IT> theStepExecutionDetails, IJobDataSink<OT> theDataSink) throws JobExecutionFailedException;
-
-	/**
-	 * Return type for {@link #run(StepExecutionDetails, IJobDataSink)}
-	 */
-	class RunOutcome {
-
-		private final int myRecordsProcessed;
-
-		public RunOutcome(int theRecordsProcessed) {
-			myRecordsProcessed = theRecordsProcessed;
-		}
-
-		public int getRecordsProcessed() {
-			return myRecordsProcessed;
-		}
-	}
-
-
+	@Nonnull
+	RunOutcome run(@Nonnull StepExecutionDetails<PT, IT> theStepExecutionDetails, @Nonnull IJobDataSink<OT> theDataSink)
+			throws JobExecutionFailedException;
 }

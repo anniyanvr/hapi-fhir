@@ -1,10 +1,8 @@
-package ca.uhn.fhir.validation;
-
 /*
  * #%L
  * HAPI FHIR - Core Library
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,11 +17,14 @@ package ca.uhn.fhir.validation;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.validation;
 
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
+
+import java.util.List;
 
 public class SingleValidationMessage {
 
@@ -31,7 +32,16 @@ public class SingleValidationMessage {
 	private Integer myLocationLine;
 	private String myLocationString;
 	private String myMessage;
+	private String myMessageId;
 	private ResultSeverityEnum mySeverity;
+	private List<String> mySliceMessages;
+
+	/**
+	 * Constructor
+	 */
+	public SingleValidationMessage() {
+		super();
+	}
 
 	@Override
 	public boolean equals(Object obj) {
@@ -51,6 +61,7 @@ public class SingleValidationMessage {
 		b.append(myLocationString, other.myLocationString);
 		b.append(myMessage, other.myMessage);
 		b.append(mySeverity, other.mySeverity);
+		b.append(mySliceMessages, other.mySliceMessages);
 		return b.isEquals();
 	}
 
@@ -70,6 +81,10 @@ public class SingleValidationMessage {
 		return myMessage;
 	}
 
+	public String getMessageId() {
+		return myMessageId;
+	}
+
 	public ResultSeverityEnum getSeverity() {
 		return mySeverity;
 	}
@@ -82,6 +97,7 @@ public class SingleValidationMessage {
 		b.append(myLocationString);
 		b.append(myMessage);
 		b.append(mySeverity);
+		b.append(mySliceMessages);
 		return b.toHashCode();
 	}
 
@@ -101,6 +117,10 @@ public class SingleValidationMessage {
 		myMessage = theMessage;
 	}
 
+	public void setMessageId(String messageId) {
+		myMessageId = messageId;
+	}
+
 	public void setSeverity(ResultSeverityEnum theSeverity) {
 		mySeverity = theSeverity;
 	}
@@ -116,10 +136,23 @@ public class SingleValidationMessage {
 			b.append("locationString", myLocationString);
 		}
 		b.append("message", myMessage);
+		if (myMessageId != null) {
+			b.append(myMessageId);
+		}
 		if (mySeverity != null) {
 			b.append("severity", mySeverity.getCode());
+		}
+		if (mySliceMessages != null) {
+			b.append("sliceMessages", mySliceMessages);
 		}
 		return b.toString();
 	}
 
+	public void setSliceMessages(List<String> theSliceMessages) {
+		mySliceMessages = theSliceMessages;
+	}
+
+	public List<String> getSliceMessages() {
+		return mySliceMessages;
+	}
 }

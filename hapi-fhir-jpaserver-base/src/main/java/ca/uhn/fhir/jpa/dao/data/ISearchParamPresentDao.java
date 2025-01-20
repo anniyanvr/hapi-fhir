@@ -1,19 +1,8 @@
-package ca.uhn.fhir.jpa.dao.data;
-
-import ca.uhn.fhir.jpa.model.entity.ResourceTable;
-import ca.uhn.fhir.jpa.model.entity.SearchParamPresent;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-
-import java.util.List;
-
 /*
  * #%L
  * HAPI FHIR JPA Server
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,14 +17,24 @@ import java.util.List;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.jpa.dao.data;
 
-public interface ISearchParamPresentDao extends JpaRepository<SearchParamPresent, Long>, IHapiFhirJpaRepository {
+import ca.uhn.fhir.jpa.model.dao.JpaPid;
+import ca.uhn.fhir.jpa.model.entity.ResourceTable;
+import ca.uhn.fhir.jpa.model.entity.SearchParamPresentEntity;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
-	@Query("SELECT s FROM SearchParamPresent s WHERE s.myResource = :res")
-	List<SearchParamPresent> findAllForResource(@Param("res") ResourceTable theResource);
+import java.util.List;
+
+public interface ISearchParamPresentDao extends JpaRepository<SearchParamPresentEntity, Long>, IHapiFhirJpaRepository {
+
+	@Query("SELECT s FROM SearchParamPresentEntity s WHERE s.myResource = :res")
+	List<SearchParamPresentEntity> findAllForResource(@Param("res") ResourceTable theResource);
 
 	@Modifying
-	@Query("delete from SearchParamPresent t WHERE t.myResourcePid = :resid")
-	void deleteByResourceId(@Param("resid") Long theResourcePid);
-
+	@Query("delete from SearchParamPresentEntity t WHERE t.myResource.myPid = :resid")
+	void deleteByResourceId(@Param("resid") JpaPid theResourcePid);
 }

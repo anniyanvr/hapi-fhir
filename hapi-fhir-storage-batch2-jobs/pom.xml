@@ -3,9 +3,11 @@
 			xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 			xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<parent>
-		<artifactId>hapi-fhir</artifactId>
 		<groupId>ca.uhn.hapi.fhir</groupId>
-		<version>6.0.0-PRE4-SNAPSHOT</version>
+		<artifactId>hapi-deployable-pom</artifactId>
+		<version>7.7.17-SNAPSHOT</version>
+
+		<relativePath>../hapi-deployable-pom/pom.xml</relativePath>
 	</parent>
 	<modelVersion>4.0.0</modelVersion>
 
@@ -24,8 +26,8 @@
 		</dependency>
 
 		<dependency>
-			<groupId>javax.servlet</groupId>
-			<artifactId>javax.servlet-api</artifactId>
+			<groupId>jakarta.servlet</groupId>
+			<artifactId>jakarta.servlet-api</artifactId>
 			<scope>provided</scope>
 		</dependency>
 

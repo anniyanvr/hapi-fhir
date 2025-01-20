@@ -18,7 +18,7 @@ import static ca.uhn.fhir.cli.BaseRequestGeneratingCommand.BaseRequestGenerating
 import static ca.uhn.fhir.cli.BaseRequestGeneratingCommand.BaseRequestGeneratingCommandOptions.HEADER_PASSTHROUGH;
 import static ca.uhn.fhir.cli.BaseRequestGeneratingCommand.BaseRequestGeneratingCommandOptions.VERSION;
 import static ca.uhn.fhir.cli.BaseRequestGeneratingCommand.BaseRequestGeneratingCommandOptions.values;
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -32,26 +32,27 @@ class BaseRequestGeneratingCommandTest {
 	@Test
 	void getOptions() {
 		Options options = tested.getOptions();
-		assertEquals(6, options.getOptions().size());
+		assertThat(options.getOptions()).hasSize(7);
 		assertTrue(options.hasShortOption(BaseCommand.FHIR_VERSION_PARAM));
 		assertTrue(options.hasShortOption(BaseCommand.BASE_URL_PARAM));
 		assertTrue(options.hasShortOption(BaseCommand.BASIC_AUTH_PARAM));
 		assertTrue(options.hasShortOption(BaseCommand.BEARER_TOKEN_PARAM_NAME));
 		assertTrue(options.hasShortOption(BaseCommand.VERBOSE_LOGGING_PARAM));
 		assertTrue(options.hasShortOption(BaseRequestGeneratingCommand.HEADER_PASSTHROUGH));
+		assertTrue(options.hasShortOption(BaseRequestGeneratingCommand.TLS_AUTH_PARAM_NAME));
 	}
 
 	@ParameterizedTest(name = "Excluding {0}")
 	@EnumSource(value = BaseRequestGeneratingCommandOptions.class,
-		names = {"VERSION", "BASE_URL", "BASIC_AUTH", "VERBOSE_LOGGING", "HEADER_PASSTHROUGH"})
+		names = {"VERSION", "BASE_URL", "BASIC_AUTH", "VERBOSE_LOGGING", "HEADER_PASSTHROUGH", "TLS_AUTH"})
 	void getSomeOptionsExcludingOne(BaseRequestGeneratingCommandOptions excludedOption) {
 		Collection<BaseRequestGeneratingCommandOptions> excludeOptions = Collections.singleton(excludedOption);
 
 		Options options = tested.getSomeOptions(excludeOptions);
 
 		// BASIC_AUTH exclusion excludes 2 options
-		int expectedSize = excludedOption == BASIC_AUTH ? 4 : 5;
-		assertEquals(expectedSize, options.getOptions().size());
+		int expectedSize = excludedOption == BASIC_AUTH ? 5 : 6;
+		assertThat(options.getOptions()).hasSize(expectedSize);
 
 		assertFalse(options.hasShortOption(getOptionForExcludedOption(excludedOption)));
 		if (excludedOption == BASIC_AUTH) {
@@ -86,6 +87,9 @@ class BaseRequestGeneratingCommandTest {
 
 			case HEADER_PASSTHROUGH:
 				return BaseRequestGeneratingCommand.HEADER_PASSTHROUGH;
+
+			case TLS_AUTH:
+				return BaseCommand.TLS_AUTH_PARAM_NAME;
 		}
 		throw new InvalidParameterException("unexpected exclude option " + excludeOption);
 	}
@@ -94,11 +98,12 @@ class BaseRequestGeneratingCommandTest {
 	void getSomeOptionsExcludeTwo() {
 		Options options = tested.getSomeOptions(Lists.newArrayList(VERSION, HEADER_PASSTHROUGH));
 
-		assertEquals(4, options.getOptions().size());
+		assertThat(options.getOptions()).hasSize(5);
 		assertTrue(options.hasShortOption(BaseCommand.BASE_URL_PARAM));
 		assertTrue(options.hasShortOption(BaseCommand.BASIC_AUTH_PARAM));
 		assertTrue(options.hasShortOption(BaseCommand.BEARER_TOKEN_PARAM_NAME));
 		assertTrue(options.hasShortOption(BaseCommand.VERBOSE_LOGGING_PARAM));
+		assertTrue(options.hasShortOption(BaseCommand.TLS_AUTH_PARAM_NAME));
 	}
 
 

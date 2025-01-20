@@ -124,17 +124,51 @@ Content-Type: application/fhir+json
 { ..resource body.. }
 ```
 
-If a client performs a contention aware update, the ETag version will be placed in the version part of the IdDt/IdType that is passed into the method. For example:
+If a client performs a contention aware update, the ETag version will be placed in the version part of the IdDt/IdType
+that is passed into the method. For example:
 
 ```java
 {{snippet:classpath:/ca/uhn/hapi/fhir/docs/RestfulPatientResourceProviderMore.java|updateEtag}}
 ``` 
 
+## Update with History Rewrite
+
+If you wish to update a historical version of a resource without creating a new version, this can now be done with the
+Update operation. While this operation is not supported by the FHIR specification, it's an enhancement added to
+specifically to HAPI-FHIR.
+
+In order to use this new functionality, you must set the `setUpdateWithHistoryRewriteEnabled` setting in the `StorageSettings`
+to true.
+
+The following API request shows an example of executing a PUT at the following endpoint.
+
+The request must include the header `X-Rewrite-History`, and should be set to true. The body of the request must include
+the resource with the same ID and version as defined in the PUT request,
+
+```http
+PUT [serverBase]/Patient/123/_history/3
+Content-Type: application/fhir+json
+X-Rewrite-History: true
+
+{ 
+   ..
+   id: "123",
+   meta: {
+      versionId: "3",
+      ..
+   }
+   ..
+}
+```
+
 <a name="instance_delete" />
 
 # Instance Level - Delete
 
-The [delete](http://hl7.org/implement/standards/fhir/http.html#delete) operation retrieves a specific version of a resource with a given ID. It takes a single ID parameter annotated with an [@IdParam](/hapi-fhir/apidocs/hapi-fhir-base/ca/uhn/fhir/rest/annotation/IdParam.html) annotation, which supplies the ID of the resource to delete.
+The [delete](http://hl7.org/implement/standards/fhir/http.html#delete) operation retrieves a specific version of a
+resource with a given ID. It takes a single ID parameter annotated with
+an [@IdParam](/hapi-fhir/apidocs/hapi-fhir-base/ca/uhn/fhir/rest/annotation/IdParam.html) annotation, which supplies the
+ID of the resource to delete.
 
 ```java
 {{snippet:classpath:/ca/uhn/hapi/fhir/docs/RestfulPatientResourceProviderMore.java|delete}}
@@ -251,7 +285,7 @@ Validate methods must be annotated with the [@Validate](/hapi-fhir/apidocs/hapi-
 
 Validate methods may optionally also have a parameter of type IdType annotated with the [@IdParam](/hapi-fhir/apidocs/hapi-fhir-base/ca/uhn/fhir/rest/annotation/IdParam.html) annotation. This parameter contains the resource ID (see the [FHIR specification](http://hl7.org/implement/standards/fhir/http.html#validation) for details on how this is used).
 
-Validate methods must return normally if the resource validates successfully, or throw an [UnprocessableEntityException](/hapi-fhir/apidocs/hapi-fhir-base/ca/uhn/fhir/rest/server/exceptions/UnprocessableEntityException.html) or [InvalidRequestException](/hapi-fhir/apidocs/hapi-fhir-base/ca/uhn/fhir/rest/server/exceptions/InvalidRequestException.html) if the validation fails.
+Validate methods must return normally independent of the validation outcome.  The ResponseStatusCode of the MethodOutcome returned should be 200 irrespective of the validation outcome as required by the [FHIR Specification for the Resource $validate operation](https://www.hl7.org/fhir/R4/resource-operation-validate.html).
 
 Validate methods must return either:
 

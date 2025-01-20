@@ -1,10 +1,8 @@
-package ca.uhn.fhir.jpa.searchparam.registry;
-
 /*-
  * #%L
- * HAPI FHIR Search Parameters
+ * HAPI FHIR JPA - Search Parameters
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,12 +17,13 @@ package ca.uhn.fhir.jpa.searchparam.registry;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.jpa.searchparam.registry;
 
 import ca.uhn.fhir.context.RuntimeSearchParam;
+import ca.uhn.fhir.rest.server.util.ResourceSearchParams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -33,11 +32,11 @@ import static org.apache.commons.lang3.StringUtils.isNotBlank;
 public class RuntimeSearchParamCache extends ReadOnlySearchParamCache {
 	private static final Logger ourLog = LoggerFactory.getLogger(RuntimeSearchParamCache.class);
 
-	protected RuntimeSearchParamCache() {
-	}
+	protected RuntimeSearchParamCache() {}
 
 	public void add(String theResourceName, String theName, RuntimeSearchParam theSearchParam) {
-		getSearchParamMap(theResourceName).put(theName, theSearchParam);
+		ResourceSearchParams resourceSearchParams = getSearchParamMap(theResourceName);
+		resourceSearchParams.put(theName, theSearchParam);
 		String uri = theSearchParam.getUri();
 		if (isNotBlank(uri)) {
 			RuntimeSearchParam existingForUrl = myUrlToParam.get(uri);
@@ -65,21 +64,23 @@ public class RuntimeSearchParamCache extends ReadOnlySearchParamCache {
 	}
 
 	private void putAll(ReadOnlySearchParamCache theReadOnlySearchParamCache) {
-		Set<Map.Entry<String, Map<String, RuntimeSearchParam>>> builtInSps = theReadOnlySearchParamCache.myResourceNameToSpNameToSp.entrySet();
-		for (Map.Entry<String, Map<String, RuntimeSearchParam>> nextBuiltInEntry : builtInSps) {
+		Set<Map.Entry<String, ResourceSearchParams>> builtInSps =
+				theReadOnlySearchParamCache.myResourceNameToSpNameToSp.entrySet();
+		for (Map.Entry<String, ResourceSearchParams> nextBuiltInEntry : builtInSps) {
 			for (RuntimeSearchParam nextParam : nextBuiltInEntry.getValue().values()) {
 				String nextResourceName = nextBuiltInEntry.getKey();
 				String nextParamName = nextParam.getName();
 				add(nextResourceName, nextParamName, nextParam);
 			}
 
-			ourLog.trace("Have {} built-in SPs for: {}", nextBuiltInEntry.getValue().size(), nextBuiltInEntry.getKey());
+			ourLog.trace(
+					"Have {} built-in SPs for: {}", nextBuiltInEntry.getValue().size(), nextBuiltInEntry.getKey());
 		}
 	}
 
 	public RuntimeSearchParam get(String theResourceName, String theParamName) {
 		RuntimeSearchParam retVal = null;
-		Map<String, RuntimeSearchParam> params = myResourceNameToSpNameToSp.get(theResourceName);
+		ResourceSearchParams params = myResourceNameToSpNameToSp.get(theResourceName);
 		if (params != null) {
 			retVal = params.get(theParamName);
 		}
@@ -91,11 +92,13 @@ public class RuntimeSearchParamCache extends ReadOnlySearchParamCache {
 	}
 
 	@Override
-	protected Map<String, RuntimeSearchParam> getSearchParamMap(String theResourceName) {
-		return myResourceNameToSpNameToSp.computeIfAbsent(theResourceName, k -> new HashMap<>());
+	protected ResourceSearchParams getSearchParamMap(String theResourceName) {
+		return myResourceNameToSpNameToSp.computeIfAbsent(
+				theResourceName, k -> new ResourceSearchParams(theResourceName));
 	}
 
-	public static RuntimeSearchParamCache fromReadOnlySearchParmCache(ReadOnlySearchParamCache theBuiltInSearchParams) {
+	public static RuntimeSearchParamCache fromReadOnlySearchParamCache(
+			ReadOnlySearchParamCache theBuiltInSearchParams) {
 		RuntimeSearchParamCache retVal = new RuntimeSearchParamCache();
 		retVal.putAll(theBuiltInSearchParams);
 		return retVal;

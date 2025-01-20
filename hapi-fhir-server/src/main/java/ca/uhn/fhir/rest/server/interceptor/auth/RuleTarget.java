@@ -1,10 +1,8 @@
-package ca.uhn.fhir.rest.server.interceptor.auth;
-
 /*-
  * #%L
  * HAPI FHIR - Server Framework
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +17,7 @@ package ca.uhn.fhir.rest.server.interceptor.auth;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.rest.server.interceptor.auth;
 
 import ca.uhn.fhir.rest.api.Constants;
 import ca.uhn.fhir.rest.api.server.RequestDetails;
@@ -48,11 +47,24 @@ public class RuleTarget {
 		for (Map.Entry<String, String[]> entry : theParameters.entrySet()) {
 			String key = entry.getKey();
 			String[] value = entry.getValue();
-			if (key.endsWith(Constants.PARAMQUALIFIER_MDM)) {
-				key = key.split(Constants.PARAMQUALIFIER_MDM)[0];
-			}
+			key = stripMdmQualifier(key);
+			key = stripNicknameQualifier(key);
 			retval.put(key, value);
 		}
 		return retval;
+	}
+
+	private String stripMdmQualifier(String theKey) {
+		if (theKey.endsWith(Constants.PARAMQUALIFIER_MDM)) {
+			theKey = theKey.split(Constants.PARAMQUALIFIER_MDM)[0];
+		}
+		return theKey;
+	}
+
+	private String stripNicknameQualifier(String theKey) {
+		if (theKey.endsWith(Constants.PARAMQUALIFIER_NICKNAME)) {
+			theKey = theKey.split(Constants.PARAMQUALIFIER_NICKNAME)[0];
+		}
+		return theKey;
 	}
 }

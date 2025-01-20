@@ -1,10 +1,8 @@
-package ca.uhn.fhir.mdm.api;
-
 /*-
  * #%L
  * HAPI FHIR - Master Data Management
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +17,101 @@ package ca.uhn.fhir.mdm.api;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.mdm.api;
 
-public interface IMdmLink {
+import ca.uhn.fhir.jpa.model.entity.PartitionablePartitionId;
+import ca.uhn.fhir.rest.api.server.storage.IResourcePersistentId;
+
+import java.util.Date;
+
+public interface IMdmLink<T extends IResourcePersistentId<?>> {
+	T getId();
+
+	IMdmLink<T> setId(T theId);
+
+	T getGoldenResourcePersistenceId();
+
+	IMdmLink<T> setGoldenResourcePersistenceId(T theGoldenResourcePid);
+
+	T getSourcePersistenceId();
+
+	IMdmLink<T> setSourcePersistenceId(T theSourcePid);
+
+	MdmMatchResultEnum getMatchResult();
+
+	IMdmLink<T> setMatchResult(MdmMatchResultEnum theMatchResult);
+
+	default boolean isNoMatch() {
+		return getMatchResult() == MdmMatchResultEnum.NO_MATCH;
+	}
+
+	default boolean isMatch() {
+		return getMatchResult() == MdmMatchResultEnum.MATCH;
+	}
+
+	default boolean isPossibleMatch() {
+		return getMatchResult() == MdmMatchResultEnum.POSSIBLE_MATCH;
+	}
+
+	default boolean isRedirect() {
+		return getMatchResult() == MdmMatchResultEnum.REDIRECT;
+	}
+
+	default boolean isPossibleDuplicate() {
+		return getMatchResult() == MdmMatchResultEnum.POSSIBLE_DUPLICATE;
+	}
+
+	MdmLinkSourceEnum getLinkSource();
+
+	IMdmLink<T> setLinkSource(MdmLinkSourceEnum theLinkSource);
+
+	default boolean isAuto() {
+		return getLinkSource() == MdmLinkSourceEnum.AUTO;
+	}
+
+	default boolean isManual() {
+		return getLinkSource() == MdmLinkSourceEnum.MANUAL;
+	}
+
+	Date getCreated();
+
+	IMdmLink<T> setCreated(Date theCreated);
+
+	Date getUpdated();
+
+	IMdmLink<T> setUpdated(Date theUpdated);
+
+	String getVersion();
+
+	IMdmLink<T> setVersion(String theVersion);
+
+	Boolean getEidMatch();
+
+	Boolean isEidMatchPresent();
+
+	IMdmLink<T> setEidMatch(Boolean theEidMatch);
+
+	Boolean getHadToCreateNewGoldenResource();
+
+	IMdmLink<T> setHadToCreateNewGoldenResource(Boolean theHadToCreateNewGoldenResource);
+
+	Long getVector();
+
+	IMdmLink<T> setVector(Long theVector);
+
+	Double getScore();
+
+	IMdmLink<T> setScore(Double theScore);
+
+	Long getRuleCount();
+
+	IMdmLink<T> setRuleCount(Long theRuleCount);
+
+	String getMdmSourceType();
+
+	IMdmLink<T> setMdmSourceType(String theMdmSourceType);
+
+	void setPartitionId(PartitionablePartitionId thePartitionablePartitionId);
+
+	PartitionablePartitionId getPartitionId();
 }

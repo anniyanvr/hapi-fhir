@@ -2,32 +2,85 @@ package ca.uhn.fhir.jpa.migrate;
 
 import ca.uhn.fhir.context.ConfigurationException;
 import ca.uhn.fhir.i18n.Msg;
+import ca.uhn.fhir.jpa.migrate.entity.HapiMigrationEntity;
 import ca.uhn.fhir.jpa.migrate.taskdef.AddTableRawSqlTask;
 import ca.uhn.fhir.jpa.migrate.taskdef.BaseTask;
 import ca.uhn.fhir.jpa.migrate.taskdef.BaseTest;
+import ca.uhn.fhir.jpa.migrate.taskdef.MigrationTaskExecutionResultEnum;
+import ca.uhn.fhir.jpa.migrate.tasks.api.TaskFlagEnum;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.flywaydb.core.api.FlywayException;
-import org.hamcrest.Matchers;
+import jakarta.annotation.Nonnull;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
-import javax.annotation.Nonnull;
+import javax.sql.DataSource;
+import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 import java.util.function.Supplier;
 
-import static org.hamcrest.CoreMatchers.containsString;
-import static org.hamcrest.CoreMatchers.startsWith;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.endsWith;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
 
 public class SchemaMigratorTest extends BaseTest {
 	private static final org.slf4j.Logger ourLog = org.slf4j.LoggerFactory.getLogger(SchemaMigratorTest.class);
 
+	@Test
+	public void validate_withSkippableTasks_returnsSuccessful() throws SQLException {
+		// setup
+		Connection connection = mock(Connection.class);
+		DataSource dataSource = mock(DataSource.class);
+		DriverTypeEnum driverTypeEnum = DriverTypeEnum.POSTGRES_9_4; // does not matter
+		HapiMigrationStorageSvc migrationStorageSvc = mock(HapiMigrationStorageSvc.class);
+
+		// create some tasks
+		AddTableRawSqlTask taskA = new AddTableRawSqlTask("V4_1_0", "20191214.1");
+		taskA.setTableName("SOMETABLE_A");
+		taskA.addSql(driverTypeEnum, "create table SOMETABLE_A (PID bigint not null, TEXTCOL varchar(255))");
+
+		AddTableRawSqlTask taskB = new AddTableRawSqlTask("V4_1_0", "20191214.2");
+		taskB.setTableName("SOMETABLE_B");
+		taskB.addSql(driverTypeEnum, "create table SOMETABLE_B (PID bigint not null, TEXTCOL varchar(255))");
+
+		AddTableRawSqlTask taskC = new AddTableRawSqlTask("V4_1_0", "20191214.3");
+		taskC.setTableName("SOMETABLE_C");
+		taskC.addSql(driverTypeEnum, "create table SOMETABLE_C (PID bigint not null, TEXTCOL varchar(255))");
+
+		AddTableRawSqlTask taskD = new AddTableRawSqlTask("V4_1_0", "20191214.4");
+		taskD.setTableName("SOMETABLE_D");
+		taskD.addSql(driverTypeEnum, "create table SOMETABLE_D (PID bigint not null, TEXTCOL varchar(255))");
+
+		List<BaseTask> tasks = ImmutableList.of(taskA, taskB, taskC, taskD);
+		for (BaseTask t : tasks) {
+			t.addFlag(TaskFlagEnum.HEAVYWEIGHT_SKIP_BY_DEFAULT);
+		}
+		MigrationTaskList taskList = new MigrationTaskList(tasks);
+
+		// when
+		when(migrationStorageSvc.diff(any(MigrationTaskList.class)))
+			.thenReturn(taskList);
+		when(dataSource.getConnection())
+			.thenReturn(connection);
+
+		// create a migrator (with empty task list)
+		SchemaMigrator schemaMigrator = new SchemaMigrator(getUrl(), SchemaMigrator.HAPI_FHIR_MIGRATION_TABLENAME, dataSource, new Properties(), new MigrationTaskList(), migrationStorageSvc);
+		schemaMigrator.setDriverType(driverTypeEnum);
+
+		// test
+		assertDoesNotThrow(schemaMigrator::validate);
+	}
 
 	@ParameterizedTest(name = "{index}: {0}")
 	@MethodSource("data")
@@ -40,8 +93,8 @@ public class SchemaMigratorTest extends BaseTest {
 			schemaMigrator.validate();
 			fail();
 		} catch (ConfigurationException e) {
-			assertThat(e.getMessage(), startsWith(Msg.code(27) + "The database schema for "));
-			assertThat(e.getMessage(), endsWith(" is out of date.  Current database schema version is unknown.  Schema version required by application is 1.1.  Please run the database migrator."));
+			assertThat(e.getMessage()).startsWith(Msg.code(27) + "The database schema for ");
+			assertThat(e.getMessage()).endsWith(" is out of date.  Current database schema version is unknown.  Schema version required by application is 1.1.  Please run the database migrator.");
 		}
 
 		schemaMigrator.migrate();
@@ -49,44 +102,38 @@ public class SchemaMigratorTest extends BaseTest {
 		schemaMigrator.validate();
 	}
 
-
 	@ParameterizedTest(name = "{index}: {0}")
 	@MethodSource("data")
 	public void testRepairFailedMigration(Supplier<TestDatabaseDetails> theTestDatabaseDetails) {
 		before(theTestDatabaseDetails);
-
 		SchemaMigrator schemaMigrator = createSchemaMigrator("SOMETABLE", "create fable SOMETABLE (PID bigint not null, TEXTCOL varchar(255))", "1");
 		try {
 			schemaMigrator.migrate();
 			fail();
-		} catch (FlywayException e) {
+		} catch (HapiMigrationException e) {
 			assertEquals(org.springframework.jdbc.BadSqlGrammarException.class, e.getCause().getCause().getClass());
+			MigrationResult failedResult = e.getResult();
+			assertEquals(0, failedResult.changes);
+			assertThat(failedResult.succeededTasks).isEmpty();
+			assertThat(failedResult.failedTasks).hasSize(1);
+			assertThat(failedResult.executedStatements).isEmpty();
+
+			assertThat(myHapiMigrationDao.findAll()).hasSize(1);
 		}
 		schemaMigrator = createTableMigrator();
-		schemaMigrator.migrate();
-	}
 
-	@ParameterizedTest(name = "{index}: {0}")
-	@MethodSource("data")
-	public void testOutOfOrderMigration(Supplier<TestDatabaseDetails> theTestDatabaseDetails) {
-		before(theTestDatabaseDetails);
+		MigrationResult result = schemaMigrator.migrate();
+		assertEquals(0, result.changes);
+		assertThat(result.succeededTasks).hasSize(1);
+		assertThat(result.failedTasks).isEmpty();
+		assertThat(result.executedStatements).hasSize(1);
 
-		SchemaMigrator schemaMigrator = createSchemaMigrator("SOMETABLE", "create table SOMETABLE (PID bigint not null, TEXTCOL varchar(255))", "2");
-		schemaMigrator.migrate();
-
-		AddTableRawSqlTask task1 = createAddTableTask("SOMEOTHERTABLE", "create table SOMEOTHERTABLE (PID bigint not null, TEXTCOL varchar(255))", "1");
-		AddTableRawSqlTask task2 = createAddTableTask("SOMETABLE", "create table SOMETABLE (PID bigint not null, TEXTCOL varchar(255))", "2");
-		schemaMigrator = createSchemaMigrator(task1, task2);
-		schemaMigrator.setStrictOrder(true);
-
-		try {
-			schemaMigrator.migrate();
-			fail();
-		} catch (FlywayException e) {
-			assertThat(e.getMessage(), containsString("Detected resolved migration not applied to database: 1.1"));
-		}
-		schemaMigrator.setStrictOrder(false);
-		schemaMigrator.migrate();
+		List<HapiMigrationEntity> entities = myHapiMigrationDao.findAll();
+		assertThat(entities).hasSize(2);
+		assertEquals(1, entities.get(0).getPid());
+		assertEquals(false, entities.get(0).getSuccess());
+		assertEquals(2, entities.get(1).getPid());
+		assertEquals(true, entities.get(1).getSuccess());
 	}
 
 	@ParameterizedTest(name = "{index}: {0}")
@@ -110,38 +157,24 @@ public class SchemaMigratorTest extends BaseTest {
 		taskD.setTableName("SOMETABLE_D");
 		taskD.addSql(getDriverType(), "create table SOMETABLE_D (PID bigint not null, TEXTCOL varchar(255))");
 
-		ImmutableList<BaseTask> taskList = ImmutableList.of(taskA, taskB, taskC, taskD);
-		MigrationTaskSkipper.setDoNothingOnSkippedTasks(taskList, "4_1_0.20191214.2, 4_1_0.20191214.4");
-		SchemaMigrator schemaMigrator = new SchemaMigrator(getUrl(), SchemaMigrator.HAPI_FHIR_MIGRATION_TABLENAME, getDataSource(), new Properties(), taskList);
+		MigrationTaskList taskList = new MigrationTaskList(ImmutableList.of(taskA, taskB, taskC, taskD));
+		taskList.setDoNothingOnSkippedTasks("4.1.0.20191214.2, 4.1.0.20191214.4");
+		SchemaMigrator schemaMigrator = new SchemaMigrator(getUrl(), SchemaMigrator.HAPI_FHIR_MIGRATION_TABLENAME, getDataSource(), new Properties(), taskList, myHapiMigrationStorageSvc);
 		schemaMigrator.setDriverType(getDriverType());
 
 		schemaMigrator.migrate();
 
 		DriverTypeEnum.ConnectionProperties connectionProperties = super.getDriverType().newConnectionProperties(getDataSource().getUrl(), getDataSource().getUsername(), getDataSource().getPassword());
 		Set<String> tableNames = JdbcUtils.getTableNames(connectionProperties);
-		assertThat(tableNames, Matchers.containsInAnyOrder("SOMETABLE_A", "SOMETABLE_C"));
-	}
+		assertThat(tableNames).containsExactlyInAnyOrder("SOMETABLE_A", "SOMETABLE_C");
 
-	@ParameterizedTest(name = "{index}: {0}")
-	@MethodSource("data")
-	public void testMigrationRequiredNoFlyway(Supplier<TestDatabaseDetails> theTestDatabaseDetails) throws SQLException {
-		before(theTestDatabaseDetails);
+		List<HapiMigrationEntity> entities = myHapiMigrationDao.findAll();
 
-		SchemaMigrator schemaMigrator = createTableMigrator();
-		schemaMigrator.setDriverType(getDriverType());
-		schemaMigrator.setDontUseFlyway(true);
-
-		// Validate shouldn't fail if we aren't using Flyway
-		schemaMigrator.validate();
-
-		schemaMigrator.migrate();
-
-		schemaMigrator.validate();
-
-		DriverTypeEnum.ConnectionProperties connectionProperties = getDriverType().newConnectionProperties(getDataSource().getUrl(), getDataSource().getUsername(), getDataSource().getPassword());
-		Set<String> tableNames = JdbcUtils.getTableNames(connectionProperties);
-		assertThat(tableNames, Matchers.contains("SOMETABLE"));
-
+		assertThat(entities).hasSize(4);
+		assertThat(entities.get(0).getResult()).isEqualTo(MigrationTaskExecutionResultEnum.APPLIED.name());
+		assertThat(entities.get(1).getResult()).isEqualTo(MigrationTaskExecutionResultEnum.NOT_APPLIED_SKIPPED.name());
+		assertThat(entities.get(2).getResult()).isEqualTo(MigrationTaskExecutionResultEnum.APPLIED.name());
+		assertThat(entities.get(3).getResult()).isEqualTo(MigrationTaskExecutionResultEnum.NOT_APPLIED_SKIPPED.name());
 	}
 
 	@Nonnull
@@ -157,7 +190,8 @@ public class SchemaMigratorTest extends BaseTest {
 
 	@Nonnull
 	private SchemaMigrator createSchemaMigrator(BaseTask... tasks) {
-		SchemaMigrator retVal = new SchemaMigrator(getUrl(), SchemaMigrator.HAPI_FHIR_MIGRATION_TABLENAME, getDataSource(), new Properties(), Lists.newArrayList(tasks));
+		MigrationTaskList taskList = new MigrationTaskList(Lists.newArrayList(tasks));
+		SchemaMigrator retVal = new SchemaMigrator(getUrl(), SchemaMigrator.HAPI_FHIR_MIGRATION_TABLENAME, getDataSource(), new Properties(), taskList, myHapiMigrationStorageSvc);
 		retVal.setDriverType(getDriverType());
 		return retVal;
 	}

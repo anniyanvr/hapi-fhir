@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>ca.uhn.hapi.fhir</groupId>
 		<artifactId>hapi-deployable-pom</artifactId>
-		<version>6.0.0-PRE4-SNAPSHOT</version>
+		<version>7.7.17-SNAPSHOT</version>
 		<relativePath>../hapi-deployable-pom/pom.xml</relativePath>
 	</parent>
 
@@ -25,16 +25,28 @@
 			<artifactId>org.hl7.fhir.utilities</artifactId>
 			<version>${fhir_core_version}</version>
 		</dependency>
+		<dependency>
+			<groupId>ca.uhn.hapi.fhir</groupId>
+			<artifactId>hapi-fhir-caching-testing</artifactId>
+			<version>${project.version}</version>
+			<scope>test</scope>
+		</dependency>
+
 
 		<!-- Server -->
 		<dependency>
-			<groupId>javax.servlet</groupId>
-			<artifactId>javax.servlet-api</artifactId>
+			<groupId>jakarta.servlet</groupId>
+			<artifactId>jakarta.servlet-api</artifactId>
 			<scope>provided</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.httpcomponents</groupId>
 			<artifactId>httpcore</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>com.googlecode.owasp-java-html-sanitizer</groupId>
+			<artifactId>owasp-java-html-sanitizer</artifactId>
 		</dependency>
 
 		<!-- 
@@ -74,10 +86,6 @@
 			<artifactId>spring-messaging</artifactId>
 		</dependency>
 		<dependency>
-			<groupId>org.springframework.batch</groupId>
-			<artifactId>spring-batch-core</artifactId>
-		</dependency>
-		<dependency>
 			<groupId>ch.qos.logback</groupId>
 			<artifactId>logback-classic</artifactId>
 			<scope>test</scope>
@@ -87,12 +95,6 @@
 		<dependency>
 			<groupId>org.simplejavamail</groupId>
 			<artifactId>simple-java-mail</artifactId>
-			<exclusions>
-				<exclusion>
-					<groupId>jakarta.annotation</groupId>
-					<artifactId>jakarta.annotation-api</artifactId>
-				</exclusion>
-			</exclusions>
 		</dependency>
 		<dependency>
 			<groupId>com.icegreen</groupId>
@@ -115,26 +117,27 @@
 	<build>
 		<plugins>
 			<plugin>
-				<groupId>org.jacoco</groupId>
-				<artifactId>jacoco-maven-plugin</artifactId>
-				<configuration>
-					<dumpOnExit>true</dumpOnExit>
-				</configuration>
-				<executions>
-					<execution>
-						<id>default-prepare-agent</id>
-						<goals>
-							<goal>prepare-agent</goal>
-						</goals>
-					</execution>
-				</executions>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
 			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-surefire-plugin</artifactId>
-				<configuration>
-					<argLine>@{argLine} ${surefire_jvm_args}</argLine>
-				</configuration>
+				<artifactId>maven-failsafe-plugin</artifactId>
+				<executions>
+					<execution>
+						<goals>
+							<goal>integration-test</goal>
+							<goal>verify</goal>
+						</goals>
+					</execution>
+				</executions>
+				<dependencies>
+					<dependency>
+						<groupId>org.junit.jupiter</groupId>
+						<artifactId>junit-jupiter-engine</artifactId>
+						<version>${junit_version}</version>
+					</dependency>
+				</dependencies>
 			</plugin>
             <plugin>
                 <groupId>org.apache.felix</groupId>

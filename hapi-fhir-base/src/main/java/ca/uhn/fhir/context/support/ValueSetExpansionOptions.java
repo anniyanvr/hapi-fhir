@@ -1,10 +1,8 @@
-package ca.uhn.fhir.context.support;
-
 /*-
  * #%L
  * HAPI FHIR - Core Library
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,8 +17,11 @@ package ca.uhn.fhir.context.support;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.context.support;
 
 import org.apache.commons.lang3.Validate;
+
+import java.util.Objects;
 
 /**
  * Options for ValueSet expansion
@@ -34,6 +35,8 @@ public class ValueSetExpansionOptions {
 	private int myOffset = 0;
 	private boolean myIncludeHierarchy;
 	private String myFilter;
+
+	private String myDisplayLanguage;
 
 	public String getFilter() {
 		return myFilter;
@@ -114,8 +117,34 @@ public class ValueSetExpansionOptions {
 	}
 
 	public static ValueSetExpansionOptions forOffsetAndCount(int theOffset, int theCount) {
-		return new ValueSetExpansionOptions()
-			.setOffset(theOffset)
-			.setCount(theCount);
+		return new ValueSetExpansionOptions().setOffset(theOffset).setCount(theCount);
+	}
+
+	public String getTheDisplayLanguage() {
+		return myDisplayLanguage;
+	}
+
+	public ValueSetExpansionOptions setTheDisplayLanguage(String theDisplayLanguage) {
+		myDisplayLanguage = theDisplayLanguage;
+		return this;
+	}
+
+	@Override
+	public boolean equals(Object theO) {
+		if (this == theO) return true;
+		if (!(theO instanceof ValueSetExpansionOptions)) return false;
+		ValueSetExpansionOptions that = (ValueSetExpansionOptions) theO;
+		return myFailOnMissingCodeSystem == that.myFailOnMissingCodeSystem
+				&& myCount == that.myCount
+				&& myOffset == that.myOffset
+				&& myIncludeHierarchy == that.myIncludeHierarchy
+				&& Objects.equals(myFilter, that.myFilter)
+				&& Objects.equals(myDisplayLanguage, that.myDisplayLanguage);
+	}
+
+	@Override
+	public int hashCode() {
+		return Objects.hash(
+				myFailOnMissingCodeSystem, myCount, myOffset, myIncludeHierarchy, myFilter, myDisplayLanguage);
 	}
 }

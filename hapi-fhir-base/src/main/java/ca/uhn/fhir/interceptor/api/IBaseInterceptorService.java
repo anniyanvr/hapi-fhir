@@ -1,10 +1,8 @@
-package ca.uhn.fhir.interceptor.api;
-
 /*-
  * #%L
  * HAPI FHIR - Core Library
  * %%
- * Copyright (C) 2014 - 2022 Smile CDR, Inc.
+ * Copyright (C) 2014 - 2025 Smile CDR, Inc.
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,42 +17,15 @@ package ca.uhn.fhir.interceptor.api;
  * limitations under the License.
  * #L%
  */
+package ca.uhn.fhir.interceptor.api;
 
-import javax.annotation.Nullable;
+import jakarta.annotation.Nullable;
+
 import java.util.Collection;
 import java.util.List;
 import java.util.function.Predicate;
 
 public interface IBaseInterceptorService<POINTCUT extends IPointcut> extends IBaseInterceptorBroadcaster<POINTCUT> {
-
-	/**
-	 * Register an interceptor that will be used in a {@link ThreadLocal} context.
-	 * This means that events will only be broadcast to the given interceptor if
-	 * they were fired from the current thread.
-	 * <p>
-	 * Note that it is almost always desirable to call this method with a
-	 * try-finally statement that removes the interceptor afterwards, since
-	 * this can lead to memory leakage, poor performance due to ever-increasing
-	 * numbers of interceptors, etc.
-	 * </p>
-	 * <p>
-	 * Note that most methods such as {@link #getAllRegisteredInterceptors()} and
-	 * {@link #unregisterAllInterceptors()} do not affect thread local interceptors
-	 * as they are kept in a separate list.
-	 * </p>
-	 *
-	 * @param theInterceptor The interceptor
-	 * @return Returns <code>true</code> if at least one valid hook method was found on this interceptor
-	 */
-	boolean registerThreadLocalInterceptor(Object theInterceptor);
-
-	/**
-	 * Unregisters a ThreadLocal interceptor
-	 *
-	 * @param theInterceptor The interceptor
-	 * @see #registerThreadLocalInterceptor(Object)
-	 */
-	void unregisterThreadLocalInterceptor(Object theInterceptor);
 
 	/**
 	 * Register an interceptor. This method has no effect if the given interceptor is already registered.
@@ -77,9 +48,13 @@ public interface IBaseInterceptorService<POINTCUT extends IPointcut> extends IBa
 	 */
 	List<Object> getAllRegisteredInterceptors();
 
+	default boolean hasRegisteredInterceptor(Class<?> theInterceptorClass) {
+		return getAllRegisteredInterceptors().stream()
+				.anyMatch(t -> t.getClass().equals(theInterceptorClass));
+	}
+
 	/**
-	 * Unregisters all registered interceptors. Note that this method does not unregister
-	 * any {@link #registerThreadLocalInterceptor(Object) thread local interceptors}.
+	 * Unregisters all registered interceptors.
 	 */
 	void unregisterAllInterceptors();
 
@@ -91,4 +66,9 @@ public interface IBaseInterceptorService<POINTCUT extends IPointcut> extends IBa
 	 * Unregisters all interceptors that are indicated by the given callback function returning <code>true</code>
 	 */
 	void unregisterInterceptorsIf(Predicate<Object> theShouldUnregisterFunction);
+
+	/**
+	 * Unregisters all anonymous interceptors (i.e. all interceptors registered with <code>registerAnonymousInterceptor</code>)
+	 */
+	void unregisterAllAnonymousInterceptors();
 }
